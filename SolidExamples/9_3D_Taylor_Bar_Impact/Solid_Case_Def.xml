@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<case>
+  <casedef>
+    <constantsdef>
+      <gravity x="0" y="0" z="0.0"/>
+      <rhop0 value="997" />
+      <hswl value="0" auto="true"  />
+      <gamma value="7" />
+      <speedsystem value="10" auto="false" />
+      <coefsound value="10" />
+      <coefh value="1.0" />
+      <cflnumber value="0.02" />
+    </constantsdef>
+    <mkconfig boundcount="240" fluidcount="9" />
+    <geometry>
+      <definition dp="0.2e-3" units_comment="metres (m)">
+        <pointmin x="-10.0e-3" y="-10.0e-3" z="-20.0e-3" />
+        <pointmax x="10.0e-3" y="10.0e-3" z="50.0e-3" />
+      </definition>
+      <commands>
+        <mainlist>
+          <newvar Rd="3.2e-3" Lz="32.4e-3"/>
+          <setdrawmode mode="full" />
+          <setmkbound mk="1" />
+          <setfrdrawmode auto="true"/>
+          <drawcylinder radius="#Rd">
+            <point x="0.0" y="0.0" z="0.0"/>
+            <point x="0.0" y="0.0" z="#Lz"/>
+          </drawcylinder>
+        </mainlist>
+      </commands>
+    </geometry>
+    <motion>
+      <objreal ref="1">
+        <begin mov="1" start="0" />
+        <mvnull id="1" />
+      </objreal>
+    </motion>
+  </casedef>
+  <execution>
+    <special>
+      <mathexpressions>
+        <userexpression id="1">
+          <locals value="Vinit=-227;"/>
+          <expression value="if(z<1.0e-12,0.0,if(t<=0.0,Vinit,skip))"/>
+        </userexpression>
+      </mathexpressions>
+      <deformstrucs>
+        <deformstrucbody mkbound="1">
+          <bcvel ze="1" />
+          <density value="8930.0"/>
+          <youngmod value="1.17e11" />
+          <poissratio value="0.35" />
+          <artvisc factor1="0.05" factor2="0.0" />
+          <constitmodel value="3"/>
+          <yieldstress value="400.0e6" />
+          <hardening value="100.0e6" />
+        </deformstrucbody>
+      </deformstrucs>
+    </special>
+    <parameters>
+      <parameter key="StepAlgorithm" value="1" />
+      <parameter key="Kernel" value="2" />
+      <parameter key="Visco" value="8.92678034e-7" />
+      <parameter key="CoefDtMin" value="0.001" />
+      <parameter key="TimeMax" value="2.5e-4" />
+      <parameter key="TimeOut" value="0.01e-4" />
+      <simulationdomain >
+        <posmin x="default-10%" y="default- 10%" z="default - 10%" />
+        <posmax x="default+10%" y="default+ 10%" z="default + 10%" />
+      </simulationdomain>
+    </parameters>
+  </execution>
+</case>

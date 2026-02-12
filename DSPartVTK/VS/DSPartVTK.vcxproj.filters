@@ -1,0 +1,163 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Common">
+      <UniqueIdentifier>{0c323fd8-161d-4b03-ab13-4d2aac2da4bf}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Libs">
+      <UniqueIdentifier>{84382e43-826a-4579-9db0-5873754bdf7d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Common\JXml">
+      <UniqueIdentifier>{fbcf2f91-df12-4ce7-9a74-f110b6864269}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\source\JXml.cpp">
+      <Filter>Common\JXml</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\tinystr.cpp">
+      <Filter>Common\JXml</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\tinyxml.cpp">
+      <Filter>Common\JXml</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\tinyxmlerror.cpp">
+      <Filter>Common\JXml</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\tinyxmlparser.cpp">
+      <Filter>Common\JXml</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\Functions.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\JBinaryData.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\JException.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\JObject.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\JPartDataBi4.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\JRangeFilter.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\JSpaceCtes.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\JSpaceEParms.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\JSpaceParts.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\JCfgRun.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\main.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\JPartDataHead.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\JDataArrays.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\JOutputCsv.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\FunctionsGeo3d.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\source\JXml.h">
+      <Filter>Common\JXml</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\tinystr.h">
+      <Filter>Common\JXml</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\tinyxml.h">
+      <Filter>Common\JXml</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\Functions.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JBinaryData.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JException.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JObject.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JPartDataBi4.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JRangeFilter.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JSpaceCtes.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JSpaceEParms.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JSpaceParts.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JCfgRun.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\TypesDef.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JPartDataHead.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JParticlesDef.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JPeriodicDef.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JSpacePartsDef.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JDataArrays.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JVtkLib.h">
+      <Filter>Libs</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JOutputCsv.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\FunctionsGeo3d.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\FunctionsMath.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JVtkLibDef.h">
+      <Filter>Libs</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\JNumexLibDef.h">
+      <Filter>Common\JXml</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\RunExceptionDef.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="VS\ENABLE_OPENMP.md" />
+  </ItemGroup>
+</Project>

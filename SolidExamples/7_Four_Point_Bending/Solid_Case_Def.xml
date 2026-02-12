@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<case>
+  <casedef>
+    <constantsdef>
+      <gravity x="0" y="0" z="0.0" />
+      <rhop0 value="997" />
+      <hswl value="0" auto="true" />
+      <gamma value="7" />
+      <speedsystem value="10" auto="false" />
+      <coefsound value="10" />
+      <coefh value="1.0" />
+      <cflnumber value="0.1" />
+    </constantsdef>
+    <mkconfig boundcount="240" fluidcount="9" />
+    <geometry>
+      <definition dp="0.2e-3" units_comment="metres (m)">
+        <pointmin x="-10.0e-3" y="-10.0e-3" z="-30.0e-3" />
+        <pointmax x="90.0e-3" y="15.0e-3" z="30.0e-3" />
+      </definition>
+      <commands>
+        <mainlist>
+        <!-- <xc0="40.0e-3" for 90 degree crack /> -->
+        <!-- <xc0="34.0e-3" for 60 degree crack /> -->
+        <!-- <xc0="30.0e-3" for 45 degree crack /> -->
+          <newvar xc0="40.0e-3"/>
+          <setdrawmode mode="face" />
+          <setshapemode>dp | bound </setshapemode>
+          <setmkbound mk="1" />
+          <drawfilevtk file="Shape_90Lambda.vtk" objname="Beam" autofill="true"/>
+          <shapeout file="FourPBend" />	
+        </mainlist>
+      </commands>
+    </geometry>
+    <motion>
+      <objreal ref="1">
+      <begin mov="1" start="0" />
+        <mvnull id="1" />
+      </objreal>
+    </motion>
+  </casedef>
+  <execution>
+     <special>
+       <mathexpressions>
+         <userexpression id="1" comment="phi constrain">
+            <expression value=" if(z0<0.00090 and x0>=0.002525 and x0<=0.005475, 0.9999, if(z0<0.00090 and x0>=0.074525 and x0<=0.077475, 0.9999, if(z0>0.01910 and x0>=0.018450 and x0<=0.021400, 0.9999, if(z0>0.01910 and x0>=0.058600 and x0<=0.061550, 0.9999,skip))))"/>
+         </userexpression>
+         <userexpression id="2" comment="z bc">
+            <locals value="Velmax=10.0"/>
+            <expression value="if(z0<0.00010 and x0>=0.003825 and x0<=0.004225, Velmax, if(z0<0.00010 and x0>=0.075625 and x0<=0.076175, Velmax, if(z0>0.01990 and x0>=0.01970 and x0<=0.020100, -Velmax, if(z0>0.01990 and x0>=0.059900 and x0<=0.060250, -Velmax, skip))))"/>
+         </userexpression>
+       </mathexpressions>
+       <deformstrucs>
+         <deformstrucbody mkbound="1">
+            <bcvel ze="2" />
+            <restrictphi value="1"/>
+            <density value="50.0" />
+            <youngmod value="12.44e9" />
+            <poissratio value="0.3" />
+            <constitmodel value="1" />
+            <artvisc factor1="0.2" />
+            <fracture value="1" />
+            <Gc value="11.8e3" />
+            <pflim value="0.05" />
+            <pflenscale value="0.25e-3" />
+            <mapfac value="1" />
+            <notch>
+              <p1 x="0.04" y="0.0e-3" z="-1.0e-3" />
+              <p2 x="0.04" y="0.0e-3" z="0.0056" />
+              <p3 x="#xc0" y="10.0e-3" z="0.0056" />
+              <p4 x="#xc0" y="10.0e-3" z="-1.0e-3" />
+            </notch>
+         </deformstrucbody>
+       </deformstrucs>
+     </special>
+     <parameters>
+       <parameter key="StepAlgorithm" value="1" />
+       <parameter key="Kernel" value="2" />
+       <parameter key="Visco" value="8.92678034e-7" />
+       <parameter key="CoefDtMin" value="0.0001" />
+       <parameter key="TimeMax" value="250.0e-6" />
+       <parameter key="TimeOut" value="2.0e-6" />
+       <simulationdomain>
+         <posmin x="default-10%" y="default- 10%" z="default - 10%" />
+         <posmax x="default+10%" y="default+ 10%" z="default + 10%" />
+       </simulationdomain>
+     </parameters>
+  </execution>
+</case>
