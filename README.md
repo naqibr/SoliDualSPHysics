@@ -323,7 +323,7 @@ The `SolidExamples/` directory contains 9 validated benchmark cases:
 | 5 | **Dynamic Crack Branching** | Fracture | Phase-field fracture with crack branching |
 | 6 | **Kalthoff–Winkler Experiment** | Fracture | Impact-induced fracture validation |
 | 7 | **Four-Point Bending** | Fracture | Quasi-static fracture propagation |
-| 8 | **Flyer Plates Impact** | Fracture | High-velocity impact and spallation |
+| 8 | **Flyer Plates Impact** | Plasticity | J2 plasticity with impact and mushrooming |
 | 9 | **3D Taylor Bar Impact** | Plasticity | J2 plasticity under high-strain-rate impact |
 
 Each example directory contains:

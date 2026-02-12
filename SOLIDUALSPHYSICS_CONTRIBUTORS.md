@@ -5,30 +5,13 @@
 ### Dr. Naqib Rahimi
 **Role**: Principal Developer and Creator  
 **Affiliation**: R&D Engineer, Senior Engineer, Synopsys Inc.  
-**Contributions**:
-- Complete design and implementation of deformable structure framework
-- Hyperelastic material models (Neo-Hookean, Saint Venant Kirchoff)
-- J2 Hyperelastic plasticity implementation with isotropic hardening
-- Phase-field fracture modeling
-- User expression parser for boundary conditions (`JUserExpression`)
-- Advanced boundary condition system for deformable structures
-- Measuring plane functionality
-- XML configuration system for solid mechanics
-- Documentation and examples
-
-**Contact**: Naqib.rahimy123@gmail.com 
+**Contact**: Naqib.rahimy123@gmail.com  
 **ORCID**: https://orcid.org/0000-0002-2156-4441
 
 ### Dr. Georgios Moutsanidis
 **Role**: PhD Advisor and Co-Developer  
-**Affiliation**: Professor, Rutgers University 
-**Contributions**:
-- Conceptual design and theoretical foundation
-- Research supervision and guidance
-- Algorithm development and validation
-- Manuscript preparation
-
-**Contact**: George.Moutsanidis@rutgers.edu
+**Affiliation**: Professor, Rutgers University  
+**Contact**: George.Moutsanidis@rutgers.edu  
 **ORCID**: https://orcid.org/0000-0001-9198-2641
 
 ---
@@ -78,17 +61,17 @@
 SoliDualSPHysics is built upon the DualSPHysics framework. We gratefully acknowledge the DualSPHysics team:
 
 ### DualSPHysics Core Developers
-- Dr. JosÈ M. DomÌnguez Alonso
+- Dr. Jos√© M. Dom√≠nguez Alonso
 - Dr. Alejandro Crespo
-- Prof. Moncho GÛmez Gesteira
+- Prof. Moncho G√≥mez Gesteira
 - Prof. Benedict Rogers
 - Dr. Georgios Fourtakas
 - Prof. Peter Stansby
 - Dr. Renato Vacondio
 - Dr. Corrado Altomare
 - Dr. Angelo Tafuni
-- Dr. Orlando GarcÌa Feal
-- Iv·n MartÌnez EstÈvez
+- Dr. Orlando Garc√≠a Feal
+- Iv√°n Mart√≠nez Est√©vez
 - Dr. Joseph O'Connor
 - Dr. Aaron English
 
@@ -101,15 +84,15 @@ https://dual.sphysics.org/developers
 
 ### SoliDualSPHysics Specific Code (~25,000+ lines)
 
-| Component | Primary Author | LOC (approx) |
+| Component | LOC (approx) |
 |-----------|---------------|--------------|
-| JSphDeformStruc Core | N. Rahimi | ~3,000 |
-| Material Models | N. Rahimi | ~5,000 |
-| Phase-Field Fracture | N. Rahimi | ~4,000 |
-| Boundary Conditions | N. Rahimi | ~3,000 |
-| JUserExpression | N. Rahimi | ~2,000 |
-| Integration & Solvers | N. Rahimi | ~6,000 |
-| Utilities & I/O | N. Rahimi | ~2,000 |
+| JSphDeformStruc Core | ~3,000 |
+| Material Models  | ~5,000 |
+| Phase-Field Fracture  | ~4,000 |
+| Boundary Conditions  | ~3,000 |
+| JUserExpression  | ~2,000 |
+| Integration & Solvers  | ~6,000 |
+| Utilities & I/O  | ~2,000 |
 
 ### DualSPHysics Base Framework
 - SPH core algorithms
@@ -201,10 +184,10 @@ For major contributions, please contact the development team first to discuss th
 
 ## Contact Information
 
-**Main Lead**: Dr. Naqib Rahimi  
+Dr. Naqib Rahimi  
 **Email**: Naqib.rahimi123@gmail.com
 
-**Co-Developer**: Dr. Georgios Moutsanidis  
+Dr. Georgios Moutsanidis  
 **Email**: Georgios.moutsanidis@rutgers.edu
 
 ---
@@ -222,4 +205,4 @@ Licensed under GNU Lesser General Public License v2.1+ (LGPL-2.1+)
 
 ---
 
-*This document reflects contributions as of 2024. For the most up-to-date information, please visit the project repository.*
+*This document reflects contributions as of 2026. For the most up-to-date information, please visit the project repository.*
