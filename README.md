@@ -16,7 +16,7 @@
 
 ---
 
-**SoliDualSPHysics** extends [DualSPHysics](https://dual.sphysics.org) to **solid mechanics** simulations using Smoothed Particle Hydrodynamics (SPH). It introduces hyperelastic material models, J2 plasticity with isotropic hardening, phase-field fracture modeling, and a versatile mathematical expression parser for user-defined boundary conditions — all with full GPU acceleration via CUDA.
+**SoliDualSPHysics** extends [DualSPHysics](https://dual.sphysics.org) to **solid mechanics** simulations using Smoothed Particle Hydrodynamics (SPH). It introduces hyperelastic material models, J2 plasticity with isotropic hardening, phase-field fracture modeling, and a versatile mathematical expression parser for user-defined boundary conditions, all with CPU parallelization and full GPU acceleration via CUDA.
 
 > **Based on:** DualSPHysics v5.2.269  
 > ([Domínguez et al., 2022](https://doi.org/10.1007/s40571-021-00404-2))
@@ -31,12 +31,12 @@ SoliDualSPHysics brings two major contributions to the DualSPHysics ecosystem:
 
 A complete deformable structure simulation framework within the SPH paradigm, including:
 
-- **Hyperelastic constitutive models** — Saint Venant–Kirchhoff and Neo-Hookean formulations for large-deformation analysis.
-- **J2 (Von Mises) hyperelastic-plasticity** — with isotropic hardening, enabling the simulation of metallic and ductile materials under extreme loading.
-- **Phase-field fracture modeling** — a diffuse-crack approach for brittle fracture, dynamic crack branching, and crack propagation without explicit crack tracking.
-- **Deformable body management** — each body carries its own material properties (Young's modulus, Poisson's ratio, yield stress, hardening modulus, critical energy release rate, etc.) and boundary conditions.
-- **Measuring planes** — for extracting displacement, velocity, and stress data at user-specified locations in the domain.
-- **GPU-accelerated solid mechanics kernels** — all solid mechanics operations (deformation gradients, stress updates, fracture field evolution, contact detection) run on the GPU via CUDA.
+- **Hyperelastic constitutive models**: Saint Venant–Kirchhoff and Neo-Hookean formulations for large-deformation analysis.
+- **J2 (Von Mises) hyperelastic-plasticity**: with isotropic hardening, enabling the simulation of metallic and ductile materials under extreme loading.
+- **Phase-field fracture modeling**: a diffuse-crack approach for brittle fracture, dynamic crack branching, and crack propagation without explicit crack tracking.
+- **Deformable body management**: each body carries its own material properties (Young's modulus, Poisson's ratio, yield stress, hardening modulus, critical energy release rate, etc.) and boundary conditions.
+- **Measuring planes**: for extracting data at user-specified locations in the domain.
+- **GPU/CPU-accelerated solid mechanics kernels**: all solid mechanics operations (deformation gradients, stress updates, fracture field evolution, contact detection) are parallelized on both CPU using OpenMP and GPU via CUDA.
 
 ### 2. Expression Parser (`JUserExpression`)
 
@@ -215,7 +215,6 @@ Convert binary output to VTK format for visualization in [ParaView](https://www.
   -filexml output/Solid_Case.xml \
   -savevtk output/particles/DefStrucBody_%mk%
 ```
-
 ---
 
 ## XML Configuration
@@ -254,7 +253,7 @@ Simulations are defined in XML configuration files.
 ```xml
 <deformstrucbody mkbound="1">
   <!-- ... material properties ... -->
-  <fracture value="true" comment="Enable phase-field fracture" />
+  <fracture value="1" comment="Enable phase-field fracture" />
   <gc value="3.0" comment="Critical energy release rate (J/m²)" />
   <pflim value="0.9" comment="Phase-field limit for crack surface" />
 </deformstrucbody>
@@ -330,29 +329,32 @@ The `SolidExamples/` directory contains 9 validated benchmark cases:
 Each example directory contains:
 
 - `Solid_Case_Def.xml` — simulation definition file  
-- `1_CPU_Run_Case_win64.bat` — Windows batch script for CPU execution  
-- `2_GPU_Run_Case_win64.bat` — Windows batch script for GPU execution  
+- `Run_Solid_Case_win` — Windows batch script for CPU/GPU execution  
+- `Run_Solid_Case_linux` — Linux bash script for CPU/GPU execution  
 
-### Running an Example (Linux)
+### Running an Example with Scripts (Windows + Linux)
 
-```bash
-# 1. Generate particle data
-./bin/linux/GenCase_linux64 \
-  SolidExamples/1_Free_Oscillation_of_a_Cantilever_Beam/Solid_Case_Def \
-  SolidExamples/1_Free_Oscillation_of_a_Cantilever_Beam/output/Solid_Case \
-  -save:all
+Each example folder includes scripts to run the case end-to-end. Both scripts are **interactive** and will prompt you for:
+- **CPU vs GPU**
+- What to do if the output folder already exists (delete / post-process / abort)
 
-# 2. Run the simulation (CPU)
-./bin/linux/SoliDualSPHysics_linux64 -cpu \
-  SolidExamples/1_Free_Oscillation_of_a_Cantilever_Beam/output/Solid_Case \
-  SolidExamples/1_Free_Oscillation_of_a_Cantilever_Beam/output \
-  -dirdataout bindata -svres
+#### Windows: Interactive CPU/GPU Run (`.bat`)
 
-# 3. Convert output to VTK
-./DSPartVTK/bin/DSPartVTK_linux64 \
-  -dirin SolidExamples/1_Free_Oscillation_of_a_Cantilever_Beam/output/bindata \
-  -filexml SolidExamples/1_Free_Oscillation_of_a_Cantilever_Beam/output/Solid_Case.xml \
-  -savevtk SolidExamples/1_Free_Oscillation_of_a_Cantilever_Beam/output/particles/DefStruc_%mk%
+Script name: `Run_Solid_Case_win.bat`
+
+What it does:
+1. Prompts for execution mode: **[1] CPU** or **[2] GPU**
+2. Checks if the output folder exists (prompts to delete / post-process / abort)
+3. Runs `GenCase_win64.exe`
+4. Runs solver:
+   - CPU: `SoliDualSPHysicsCPU_win64.exe`
+   - GPU: `SoliDualSPHysics_win64.exe` with `-gpu`
+5. Converts binary output to VTK using `DSPartVTK_win64.exe`
+
+From inside an example directory (e.g., `SolidExamples\1_Free_Oscillation_of_a_Cantilever_Beam\`), run:
+
+```bat
+Run_Solid_Case_win.bat
 ```
 
 ---
@@ -372,15 +374,12 @@ Each example directory contains:
 ### Computation Pipeline
 
 ```text
-XML Config → GenCase → Particle Generation → Solver Loop:
-  ├── Neighbor Search (cell-linked list)
-  ├── Kernel Evaluation (Wendland / Cubic Spline)
+XML Config → GenCase → Particle Generation → Neighbor Search → Kernel Evaluation → Solver Loop:
   ├── Deformation Gradient Computation
   ├── Stress Update (SVK / Neo-Hookean / J2 Plasticity)
   ├── Phase-Field Fracture Evolution (if enabled)
   ├── Boundary Condition Application (Expression Parser)
-  ├── Acceleration & Velocity Update
-  └── Time Integration (Verlet / Symplectic)
+  └── Acceleration & Velocity Update (Verlet / Symplectic)
 → Output (VTK / CSV)
 ```
 
@@ -471,7 +470,7 @@ For major contributions, please open an issue first to discuss the proposed chan
 
 ### SoliDualSPHysics Development
 
-**Dr. Mohammad Naqib Rahimi** — *Principal Developer and Creator*  
+**Dr. Naqib Rahimi** — *Principal Developer and Creator*  
 - R&D Engineer, Synopsys Inc.  
 - ORCID: [0000-0002-2156-4441](https://orcid.org/0000-0002-2156-4441)  
 - Email: Naqib.rahimy123@gmail.com  
