@@ -30,6 +30,9 @@ diroutvtk="${dirout}/particles"
 dirbin="../../bin/linux"
 dspartvtkdirbin="../../DSPartVTK/bin"
 
+# Ensure the dynamic linker can find shared libs (e.g. libdsphchrono.so)
+export LD_LIBRARY_PATH="$(cd "${dirbin}" && pwd)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
 gencase="${dirbin}/GenCase_linux64"
 solver_cpu="${dirbin}/SoliDualSPHysics_linux64"   # CPU mode invoked with -cpu
 solver_gpu="${dirbin}/SoliDualSPHysics_linux64"   # GPU mode is default (no -cpu)
