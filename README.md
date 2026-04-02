@@ -147,8 +147,6 @@ cd src/source
 mkdir -p build && cd build
 cmake ..
 make -j"$(nproc)"
-# CPU-only executable: DualSPHysics5.2_FlexStrucCPU_linux64
-# GPU executable:      DualSPHysics5.2_FlexStruc_linux64
 ```
 
 #### Windows (Visual Studio)
