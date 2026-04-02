@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<case>
+  <casedef>
+    <constantsdef>
+      <gravity x="0" y="0" z="0.0"/>
+      <rhop0 value="997"/>
+      <hswl value="0" auto="true" />
+      <gamma value="7" />
+      <speedsystem value="10" auto="false" />
+      <coefsound value="10" />
+      <coefh value="1.0" />
+      <cflnumber value="0.2"/>
+    </constantsdef>
+    <mkconfig boundcount="240" fluidcount="9" />
+    <geometry>
+      <definition dp="1.0e-3" units_comment="metres (m)">
+        <pointmin x="-2.0e-3" y="0.50e-3" z="-2.0e-3" />
+        <pointmax x="101.0e-3" y="0.50e-3" z="100.0e-3" />
+      </definition>
+      <commands>
+        <mainlist>
+          <setdrawmode mode="full" />
+          <setmkbound mk="1" />
+          <drawbox>
+            <boxfill>solid</boxfill>
+            <point x="0.5e-3" y="0.0" z="0.5e-3" />
+            <size x="99.5e-3" y="10.0e-3" z="99.5e-3" />
+          </drawbox>
+          <setmkbound mk="2" />
+          <drawbox>
+            <boxfill>solid</boxfill>
+            <point x="-0.5e-3" y="0.0" z="0.5e-3" />
+            <size x="0.5e-3" y="10.0e-3" z="24.5e-3" />
+          </drawbox>
+          <setmkbound mk="3" />
+          <drawbox>
+            <boxfill>solid</boxfill>
+            <point x="0.5e-3" y="0.0" z="-0.5e-3" />
+            <size x="99.5e-3" y="10.0e-3" z="0.5e-3" />
+          </drawbox>
+        </mainlist>
+      </commands>
+    </geometry>
+    <motion>
+      <objreal ref="1">
+        <begin mov="1" start="0" />
+        <mvnull id="1" />
+      </objreal>
+    </motion>
+  </casedef>
+  <execution>
+    <special>
+      <mathexpressions>
+        <userexpression id="2">
+          <locals value="maxv=16.5; ramt=1.0e-6"/>
+          <expression value="if(t>ramt,maxv,t/ramt*maxv)"/>
+        </userexpression>
+      </mathexpressions>
+      <deformstrucs>
+        <deformstrucbody mkbound="1">
+          <nbsrange value="1"/>
+          <bcvel mkid="2" xe="2"/>
+          <bcvel mkid="3" z="0.0"/>
+          <density value="8000.0" />
+          <youngmod value="190.0e9" />
+          <poissratio value="0.3" />
+          <constitmodel value="1" />
+          <artvisc factor1="0.1" />
+          <fracture value="1" />
+          <Gc value="22.13e3" />
+          <pflim value="0.05" />
+          <pflenscale value="0.15e-3" />
+          <mapfac value="8" />
+          <notch>
+            <p1 x="0.0e-3" y="-1.0e-3" z="25.6e-3" />
+            <p2 x="50.0e-3" y="-1.0e-3" z="25.6e-3" />
+            <p3 x="50.0e-3" y="1.0e-3" z="25.6e-3" />
+            <p4 x="0.0e-3" y="1.0e-3" z="25.6e-3" />
+          </notch>
+        </deformstrucbody>
+      </deformstrucs>
+    </special>
+    <parameters>
+      <parameter key="StepAlgorithm" value="1" />
+      <parameter key="Kernel" value="2" />
+      <parameter key="Visco" value="8.92678034e-7" />
+      <parameter key="CoefDtMin" value="0.001" />
+      <parameter key="TimeMax" value="120.0e-6" />
+      <parameter key="TimeOut" value="1.0e-6"/>
+      <simulationdomain>
+        <posmin x="default-10%" y="default- 10%" z="default - 10%" />
+        <posmax x="default+10%" y="default+ 10%" z="default + 10%" />
+      </simulationdomain>
+    </parameters>
+  </execution>
+</case>

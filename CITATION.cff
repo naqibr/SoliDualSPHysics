@@ -1,0 +1,73 @@
+cff-version: 1.2.0
+message: "If you use SoliDualSPHysics in your research, please cite it as below."
+title: "SoliDualSPHysics: An extension of DualSPHysics to solid mechanics"
+abstract: "SoliDualSPHysics extends DualSPHysics to solid mechanics simulations with hyperelasticity, plasticity, and fracture capabilities using smoothed particle hydrodynamics (SPH) and phase-field methods."
+authors:
+  - family-names: "Rahimi"
+    given-names: "Mohammad Naqib"
+    orcid: "https://orcid.org/0000-0002-2156-4441"  
+    affiliation: "Synopsys Inc."
+  - family-names: "Moutsanidis"
+    given-names: "George"
+    orcid: "https://orcid.org/0000-0001-9198-2641"
+    affiliation: "Rutgers University"
+version: 1.0.0
+date-released: 2026-02-01 
+license: GPL-3.0-or-later
+keywords:
+  - SPH
+  - smoothed particle hydrodynamics
+  - solid mechanics
+  - hyperelasticity
+  - plasticity
+  - fracture mechanics
+  - phase-field
+  - computational mechanics
+preferred-citation:
+  type: article
+  title: "SoliDualSPHysics: An extension of DualSPHysics for solid mechanics with hyperelasticity, plasticity, and fracture"
+  authors:
+    - family-names: "Rahimi"
+      given-names: "Mohammad Naqib"
+    - family-names: "Moutsanidis"
+      given-names: "George"
+  year: 2026
+  status: "In preparation"
+  notes: "Based on PhD thesis: Computational Mechanics of Extreme Events: Advanced Multi-physics Modeling and Simulations with Smoothed Particle Hydrodynamics, Isogeometric Analysis, and Phase Field"
+references:
+  - type: article
+    title: "DualSPHysics: from fluid dynamics to multiphysics problems"
+    authors:
+      - family-names: "Domínguez"
+        given-names: "José M."
+      - family-names: "Fourtakas"
+        given-names: "Georgios"
+      - family-names: "Altomare"
+        given-names: "Corrado"
+      - family-names: "Canelas"
+        given-names: "Ricardo B."
+      - family-names: "Tafuni"
+        given-names: "Angelo"
+      - family-names: "García-Feal"
+        given-names: "Orlando"
+      - family-names: "Martínez-Estévez"
+        given-names: "Iván"
+      - family-names: "Mokos"
+        given-names: "Athanasios"
+      - family-names: "Vacondio"
+        given-names: "Renato"
+      - family-names: "Crespo"
+        given-names: "Alejandro J.C."
+      - family-names: "Rogers"
+        given-names: "Benedict D."
+      - family-names: "Stansby"
+        given-names: "Peter K."
+      - family-names: "Gómez-Gesteira"
+        given-names: "Moncho"
+    journal: "Computational Particle Mechanics"
+    volume: 9
+    issue: 5
+    year: 2022
+    start: 867
+    end: 895
+    doi: "10.1007/s40571-021-00404-2"
