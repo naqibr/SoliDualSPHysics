@@ -86,10 +86,6 @@ SoliDualSPHysics/
 │   │   ├── vs2022/                      # Visual Studio 2022 libraries
 │   │   └── vs2026/                      # Visual Studio 2026 libraries
 │   └── VS/                              # Visual Studio project files & documentation
-│       ├── CITATION.cff
-│       ├── LICENSE_INFO.md
-│       ├── SOLIDUALSPHYSICS_CONTRIBUTORS.md
-│       └── SOLIDUALSPHYSICS_README.md
 ├── SolidExamples/                       # 9 benchmark simulation cases
 │   ├── 1_Free_Oscillation_of_a_Cantilever_Beam/
 │   ├── 2_Free_Oscillation_of_a_Cantilever_Plate/
@@ -395,7 +391,7 @@ If you use SoliDualSPHysics in your research, please cite both the SoliDualSPHys
              with hyperelasticity, plasticity, and fracture},
   author  = {Rahimi, Mohammad Naqib and Moutsanidis, George},
   year    = {2026},
-  note    = {In preparation}
+  doi     = {10.48550/arXiv.2602.15149}
 }
 
 @phdthesis{rahimi2025phdthesis,
@@ -430,17 +426,11 @@ If you use SoliDualSPHysics in your research, please cite both the SoliDualSPHys
 
 ## License
 
-SoliDualSPHysics uses a dual-license model:
+SoliDualSPHysics is licensed under the GNU Lesser General Public License v2.1 or later (LGPL-2.1-or-later).
 
-| Component | License | Copyright |
-|---|---|---|
-| **DualSPHysics base framework** | GNU LGPL v2.1+ | © 2023 Dr. José M. Domínguez et al. |
-| **Solid mechanics core** (`JSphDeformStruc`, material models, fracture) | GNU GPL v3 | © 2024 Dr. Naqib Rahimi & Dr. George Moutsanidis |
-| **Expression parser and utilities** (`JUserExpression`, XML readers) | GNU LGPL v2.1+ | © 2024 Dr. Naqib Rahimi & Dr. George Moutsanidis |
+SoliDualSPHysics extends DualSPHysics, which is also licensed under LGPL-2.1-or-later. All new source files introduced in this repository are distributed under the same license for compatibility.
 
-- Full license details: [`src/VS/LICENSE_INFO.md`](src/VS/LICENSE_INFO.md)  
-- GPL v3 text: https://www.gnu.org/licenses/gpl-3.0.html  
-- LGPL v2.1 text: https://www.gnu.org/licenses/lgpl-2.1.html  
+See the `LICENSE` file for the full license text.
 
 ---
 
