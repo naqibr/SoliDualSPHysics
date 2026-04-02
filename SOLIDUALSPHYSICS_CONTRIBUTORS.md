@@ -111,7 +111,7 @@ https://dual.sphysics.org/developers
 - Fracture propagation tests
 - Contact mechanics examples
 
-**Validation Studies**: Dr. Naqib Rahimi, Dr. Georgios Moutsanidis
+**Validation Studies**: Dr. Naqib Rahimi, Dr. George Moutsanidis
 
 ---
 
@@ -132,7 +132,7 @@ https://dual.sphysics.org/developers
 
 **Authors**: Naqib Rahimi, George Moutsanidis
 
-**Status**: In preparation (2026)
+**DOI**: https://doi.org/10.48550/arXiv.2602.15149
 
 **Key Contributions**:
 - Novel SPH formulation for solid mechanics
@@ -195,13 +195,15 @@ Dr. George Moutsanidis
 ## License Information
 
 ### SoliDualSPHysics Components
-Copyright (c) 2024 Dr. Naqib Rahimi and Dr. George Moutsanidis
+Copyright (c) Dr. Naqib Rahimi and Dr. George Moutsanidis
 
-Licensed under GNU General Public License v3.0 (GPL-3.0) or GNU Lesser General Public License v2.1+ (LGPL-2.1+) depending on the component. See individual source files for specific license information.
+Licensed under GNU LGPL v2.1+ (LGPL-2.1+).
 
 ### DualSPHysics Base
-Copyright (c) 2023 by the DualSPHysics developers  
+Copyright © DualSPHysics contributors (see original source headers)
 Licensed under GNU Lesser General Public License v2.1+ (LGPL-2.1+)
+
+See the repository `LICENSE` file for full license text.
 
 ---
 
