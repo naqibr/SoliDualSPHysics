@@ -32,7 +32,7 @@ preferred-citation:
     - family-names: "Moutsanidis"
       given-names: "George"
   year: 2026
-  status: "In preparation"
+  doi: "10.48550/arXiv.2602.15149"
   notes: "Based on PhD thesis: Computational Mechanics of Extreme Events: Advanced Multi-physics Modeling and Simulations with Smoothed Particle Hydrodynamics, Isogeometric Analysis, and Phase Field"
 references:
   - type: article
