@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<case app="GenCase v5.0.171 (04-04-2020)" date="05-04-2020 14:20:32">
+    <casedef>
+        <constantsdef>
+            <lattice bound="1" fluid="1" />
+            <gravity x="0" y="0" z="-9.81" />
+            <cflnumber value="0.2" />
+            <hswl value="0" auto="true" />
+            <coefsound value="10" />
+            <coefficient value="0.866025" />
+            <gamma value="7" />
+            <rhop0 value="1000" />
+            <eps value="0.5" />
+        </constantsdef>
+        <mkconfig boundcount="230" fluidcount="10">
+            <mkorientfluid mk="0" orient="Xyz" />
+        </mkconfig>
+        <geometry>
+            <definition dp="0.05">
+                <pointmin x="-0.05" y="1" z="-1" />
+                <pointmax x="25" y="1" z="5" />
+            </definition>
+            <commands>
+                <mainlist>
+                    <setshapemode>real | dp | bound</setshapemode>
+                    <setdrawmode mode="full" />
+                    <setmkbound mk="10" />
+                    <drawbox>
+                        <boxfill>solid</boxfill>
+                        <point x="3.3" y="0" z="0.05" />
+                        <size x="0.2" y="10" z="2.4" />
+                    </drawbox>
+                    <setmkbound mk="0" />
+                    <drawbeach mask="96">
+                        <point x="15" y="10" z="2.4" />
+                        <point x="15" y="10" z="2" />
+                        <point x="5" y="10" z="0" />
+                        <point x="2" y="10" z="0" />
+                        <point x="2" y="10" z="2.4" />
+                    </drawbeach>
+                    <_drawpoint x="0" y="1" z="-0.1" />
+                    <setmkfluid mk="0" />
+                    <fillbox x="5" y="1" z="1">
+                        <modefill>void</modefill>
+                        <point x="-1" y="0" z="-1" />
+                        <size x="25" y="10.1" z="2.4" />
+                    </fillbox>
+                    <shapeout file="" reset="true" />
+                </mainlist>
+            </commands>
+        </geometry>
+        <motion>
+            <objreal ref="10">
+                <begin mov="1" start="0" />
+                <mvnull id="1" />
+            </objreal>
+        </motion>
+    </casedef>
+    <execution>
+        <special>
+            <pistons>
+                <piston1d>
+                    <mkbound value="10" comment="Mk-Bound of selected particles" />
+                    <filevelx value="scandura_cr_velx_x05_y05.csv" comment="File name with X velocity" />
+                    <incz value="2" comment="Z offset (def=0)" />
+                    <timedataini value="0" comment="Time offset (def=0)" />
+                    <smooth value="7" comment="Smooth motion level (def=0)" />
+                </piston1d>
+            </pistons>
+        </special>
+        <parameters>
+            <parameter key="StepAlgorithm" value="2" comment="Step Algorithm 1:Verlet, 2:Symplectic (def=1)" />
+            <parameter key="VerletSteps" value="40" comment="Verlet only: Number of steps to apply Eulerian equations (def=40)" />
+            <parameter key="Kernel" value="2" comment="Interaction Kernel 1:Cubic Spline, 2:Wendland (def=1)" />
+            <parameter key="KernelGradientCorr" value="0" comment="Apply Kernel Gradient Correction (yes=1)" />
+            <parameter key="ViscoTreatment" value="1" comment="Viscosity Formulation 1:Artificial, 2:Laminar+SPS (def=1)" />
+            <parameter key="Visco" value="0.1" comment="Viscosity value" />
+            <parameter key="DtIni" value="0.0001" comment="Initial time step" />
+            <parameter key="DtMin" value="0.00001" comment="Minimum time step (def=0.00001)" />
+            <parameter key="TimeMax" value="1" comment="Time of simulation" />
+            <parameter key="TimeOut" value="0.1" comment="Time between output files" />
+            <parameter key="IncZ" value="0.1" comment="**DEPRECATED** Increase of Z+" />
+            <parameter key="PartsOutMax" value="1" comment="Allowed percentage of fluid particles out the domain (def=1)" />
+            <simulationdomain comment="Defines domain of simulation (default=Uses minimun and maximum position of the generated particles)">
+                <posmin x="default" y="default" z="default" comment="e.g.: x=0.5, y=default-1, z=default-10%" />
+                <posmax x="default" y="default" z="default" />
+            </simulationdomain>
+        </parameters>
+        <particles np="3186" nb="594" nbf="349" mkboundfirst="11" mkfluidfirst="1">
+            <_summary>
+                <positions units_comment="metres (m)">
+                    <posmin x="2" y="1" z="0" />
+                    <posmax x="15" y="1" z="2.45" />
+                </positions>
+                <fixed count="349" id="0-348" mkcount="1" mkvalues="11" />
+                <moving count="245" id="349-593" mkcount="1" mkvalues="21" />
+                <fluid count="2592" id="594-3185" mkcount="1" mkvalues="1" />
+            </_summary>
+            <fixed mkbound="0" mk="11" begin="0" count="349" />
+            <moving mkbound="10" mk="21" begin="349" count="245" refmotion="0" />
+            <fluid mkfluid="0" mk="1" begin="594" count="2592" />
+        </particles>
+        <constants>
+            <data2d value="true" />
+            <data2dposy value="1" units_comment="metres (m)" />
+            <gravity x="0" y="0" z="-9.81" units_comment="m/s^2" />
+            <cflnumber value="0.2" />
+            <gamma value="7" />
+            <rhop0 value="1000" units_comment="kg/m^3" />
+            <eps value="0.5" units_comment="m/s^2" />
+            <dp value="0.05" units_comment="metres (m)" />
+            <h value="6.1237215018E-02" units_comment="metres (m)" />
+            <b value="1.8218571429E+05" units_comment="Pascal (Pa)" />
+            <massbound value="2.5000000000E+00" units_comment="kg" />
+            <massfluid value="2.5000000000E+00" units_comment="kg" />
+        </constants>
+        <motion>
+            <objreal ref="0">
+                <begin mov="1" start="0" />
+                <mvnull id="1" />
+            </objreal>
+        </motion>
+        <vtkout mkboundfirst="11" mkfluidfirst="1">
+            <vtkfile name="Piston2D__Dp.vtk" mk="11,21" mkbound="0,10" />
+            <vtkfile name="Piston2D__Actual.vtk" mk="11,21" mkbound="0,10" />
+        </vtkout>
+    </execution>
+</case>

@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<case>
+  <casedef>
+    <constantsdef>
+      <gravity x="0" y="0" z="0.0" comment="Gravitational acceleration" units_comment="m/s^2" />
+      <rhop0 value="997" comment="Reference density of the fluid" units_comment="kg/m^3" />
+      <hswl value="0" auto="true" comment="Maximum still water level to calculate speedofsound using coefsound" units_comment="metres (m)" />
+      <gamma value="7" comment="Polytropic constant for water used in the state equation" />
+      <speedsystem value="10" auto="false" comment="Maximum system speed (by default the dam-break propagation is used)" />
+      <coefsound value="10" comment="Coefficient to multiply speedsystem" />
+      <coefh value="1.0" comment="Coefficient to calculate the smoothing length (h=coefh*sqrt(3*dp^2) in 3D)" />
+      <cflnumber value="0.2" comment="Coefficient to multiply dt" />
+    </constantsdef>
+    <mkconfig boundcount="240" fluidcount="9" />
+    <geometry>
+      <definition dp="1.0e-3" units_comment="metres (m)">
+        <pointmin x="-20.5e-3" y="-40.5e-3" z="-20.5e-3" />
+        <pointmax x="220.5e-3" y="100.5e-3" z="40.5e-3" />
+      </definition>
+      <commands>
+        <mainlist>
+          <newvar Lxs="-1.5e-3" Lxf="200.5e-3"/>
+          <newvar Lys="0.5e-3" Lyf="59.0e-3"/>
+          <newvar Lzs="0.5e-3" Lzf="19.0e-3"/>
+          <newvar LzMn="9.5e-3" LzMp="10.5e-3"/>
+          <newvar LyMn="0.0" LyMp="60.0e-3"/>
+          <setdrawmode mode="full" />
+          <setshapemode> actual | bound </setshapemode>
+          <setmkbound mk="1" />
+          <drawbox>
+            <boxfill>solid</boxfill>
+            <point x="#Lxs" y="#Lys" z="#Lzs" />
+            <size x="#Lxf" y="#Lyf" z="#Lzf" />
+          </drawbox>
+        </mainlist>
+      </commands>
+    </geometry>
+    <motion>
+      <objreal ref="1">
+        <begin mov="1" start="0" />
+        <mvnull id="1" />
+      </objreal>
+    </motion>
+  </casedef>
+  <execution>
+    <special>
+      <mathexpressions>
+        <userexpression id="1" comment="User expression for velocity field in z direction">
+          <locals value="L0=0.2; kw=9.375; cs=57.0"/>
+          <expression value="if(x0<=0.0,0.0,if(t<1.0e-12,0.01 * cs * ((cos(kw*L0)+cosh(kw*L0))*(cosh(kw*x0)-cos(kw*x0)) + (sin(kw*L0)-sinh(kw*L0))*(sinh(kw*x0)-sin(kw*x0)))/ ((cos(kw*L0)+cosh(kw*L0))*(cosh(kw*L0)-cos(kw*L0)) + (sin(kw*L0)-sinh(kw*L0))*(sinh(kw*L0)-sin(kw*L0))),skip))"/>
+        </userexpression>
+        <userexpression id="2" comment="User expression for velocity field in z direction">
+          <expression value="if(x0<=0.0,0.0,skip)"/>
+        </userexpression>
+      </mathexpressions>
+      <deformstrucs>
+        <deformstrucbody mkbound="1">
+          <bcvel ze="1" xe="2" ye="2" comment="Initial velocity field in z applied according to expression 1" />          
+          <density value="1000.0" comment="Mass density" units_comment="kg/m^3" />
+          <u_mu value="0.715e6" comment="User defined Shear Modulus" units_comment="Pa" />
+          <u_bulk value="3.25e6" comment="User defined Shear Modulus" units_comment="Pa" />
+          <constitmodel value="1" comment="Constitutive model 2:Neo-Hookean" />
+          <artvisc factor1="0.1" factor2="0.0" comment=" Artificial viscousity factor" />
+          <mapfac value="2" comment="Map factor: x4 refinement of particle resolution" />
+          <measureplane comment="Measure tip displacement at the free end">
+            <p1 x="199.999e-3" y="#LyMn" z="#LzMn" />
+            <p2 x="199.999e-3" y="#LyMp" z="#LzMn" />
+            <p3 x="199.999e-3" y="#LyMp" z="#LzMp" />
+            <p4 x="199.999e-3" y="#LyMn" z="#LzMp" />
+          </measureplane>
+        </deformstrucbody>
+      </deformstrucs>
+    </special>
+    <parameters>
+      <parameter key="StepAlgorithm" value="1" comment="Step Algorithm 1:Verlet, 2:Symplectic (default=1)" />
+      <parameter key="Kernel" value="2" comment="Interaction Kernel 1:Cubic Spline, 2:Wendland (default=2)" />
+      <parameter key="Visco" value="8.92678034e-7" comment="Viscosity value" />
+      <parameter key="TimeMax" value="1.0" comment="Time of simulation" units_comment="seconds" />
+      <parameter key="TimeOut" value="0.001" comment="Time out data" units_comment="seconds" />
+      <simulationdomain comment="Defines domain of simulation (default=Uses minimun and maximum position of the generated particles)">
+        <posmin x="default-10%" y="default- 10%" z="default - 10%" comment="e.g.: x=0.5, y=default-1, z=default-10%" />
+        <posmax x="default+10%" y="default+ 10%" z="default + 10%" />
+      </simulationdomain>
+    </parameters>
+  </execution>
+</case>

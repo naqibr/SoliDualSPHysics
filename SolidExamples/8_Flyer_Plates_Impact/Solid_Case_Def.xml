@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<case>
+  <casedef>
+    <constantsdef>
+      <gravity x="0" y="0" z="0.0" />
+      <rhop0 value="997" />
+      <hswl value="0" auto="true" />
+      <gamma value="7" />
+      <speedsystem value="10" auto="false" />
+      <coefsound value="10" />
+      <coefh value="1.3" />
+      <cflnumber value="0.01" />
+    </constantsdef>
+    <mkconfig boundcount="240" fluidcount="9" />
+    <geometry>
+      <definition dp="0.01" units_comment="metres (m)">
+        <pointmin x="-2.0" y="0" z="-1.0" />
+        <pointmax x="2.0" y="0" z="5.0" />
+      </definition>
+      <commands>
+        <mainlist>
+          <newvar Lx="1.0" Ly="1.0" Lz="1.0"/>
+          <setdrawmode mode="full" />
+          <setmkbound mk="1" />
+          <drawbox>
+            <boxfill>solid</boxfill>
+            <point x="0.0" y="0.0" z="1.1" />
+            <size x="#Lx" y="#Ly" z="#Lz" />
+          </drawbox>
+          <setmkbound mk="2" />
+          <drawbox>
+            <boxfill>solid</boxfill>
+            <point x="0.0" y="0.0" z="0.05" />
+            <size x="#Lx" y="#Ly" z="#Lz" />
+          </drawbox>
+        </mainlist>
+      </commands>
+    </geometry>
+    <motion>
+      <objreal ref="1">
+        <begin mov="1" start="0" />
+        <mvnull id="1" />
+      </objreal>
+      <objreal ref="2">
+        <begin mov="2" start="0" />
+        <mvnull id="2" />
+      </objreal>
+    </motion>
+  </casedef>
+  <execution>
+    <special>
+      <deformstrucs>
+        <contcoeff value="5" />
+        <deformstrucbody mkbound="1">
+          <bcvel z="-200.0" tend="0.0"/>
+          <density value="7870.0" />
+          <youngmod value="200.0e9" />
+          <poissratio value="0.29" />
+          <artvisc factor1="0.05" factor2="0.0" />
+          <constitmodel value="3" />
+          <restcoef value="0.95" />
+          <yieldstress value="4.0e8" />
+          <hardening value="1.0e8" />
+        </deformstrucbody>
+        <deformstrucbody mkbound="2">
+          <bcvel z="200.0" tend="0.0"/>
+          <density value="7870.0" />
+          <youngmod value="200.0e9" />
+          <poissratio value="0.29" />
+          <artvisc factor1="0.05" factor2="0.0" />
+          <constitmodel value="3" />
+          <restcoef value="0.95" />
+          <yieldstress value="4.0e8" />
+          <hardening value="1.0e8" />
+        </deformstrucbody>
+      </deformstrucs>
+    </special>
+    <parameters>
+      <parameter key="StepAlgorithm" value="1" />
+      <parameter key="Kernel" value="2" />
+      <parameter key="Visco" value="8.92678034e-7" />
+      <parameter key="CoefDtMin" value="0.001" />
+      <parameter key="TimeMax" value="100.0e-4" />
+      <parameter key="TimeOut" value="0.1e-4" comment="Time out data" units_comment="seconds" />
+      <simulationdomain >
+        <posmin x="default-10%" y="default- 10%" z="default - 10%" />
+        <posmax x="default+10%" y="default+ 10%" z="default + 10%" />
+      </simulationdomain>
+    </parameters>
+  </execution>
+</case>

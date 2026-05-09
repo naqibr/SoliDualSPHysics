@@ -1,0 +1,2858 @@
+//HEAD_DSPH
+/*
+ <DUALSPHYSICS>  Copyright (c) 2020 by Dr Jose M. Dominguez et al. (see http://dual.sphysics.org/index.php/developers/).
+
+ EPHYSLAB Environmental Physics Laboratory, Universidade de Vigo, Ourense, Spain.
+ School of Mechanical, Aerospace and Civil Engineering, University of Manchester, Manchester, U.K.
+
+ This file is part of DualSPHysics.
+
+ DualSPHysics is free software: you can redistribute it and/or modify it under the terms of the GNU Lesser General Public License
+ as published by the Free Software Foundation; either version 2.1 of the License, or (at your option) any later version.
+
+ DualSPHysics is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more details.
+
+ You should have received a copy of the GNU Lesser General Public License along with DualSPHysics. If not, see <http://www.gnu.org/licenses/>.
+*/
+
+/// \file JSphCpuSingle.cpp \brief Implements the class \ref JSphCpuSingle.
+
+#include "JSphCpuSingle.h"
+#include "JCellDivCpuSingle.h"
+#include "JCellSearch_inline.h"
+#include "JArraysCpu.h"
+#include "JSphMk.h"
+#include "JPartsLoad4.h"
+#include "Functions.h"
+#include "FunctionsMath.h"
+#include "FunSphKernelsCfg.h"
+#include "JXml.h"
+#include "JDsMotion.h"
+#include "JDsViscoInput.h"
+#include "JWaveGen.h"
+#include "JMLPistons.h"
+#include "JRelaxZones.h"
+#include "JChronoObjects.h"
+#include "JDsMooredFloatings.h"
+#include "JDsFtForcePoints.h"
+#include "JDsOutputTime.h"
+#include "JTimeControl.h"
+#include "JDsGaugeSystem.h"
+#include "JSphInOut.h"
+#include "JFtMotionSave.h"  //<vs_ftmottionsv>
+#include "JLinearValue.h"
+#include "JDataArrays.h"
+#include "JSphShifting.h"
+#include "JDsPips.h"
+#include "JDsExtraData.h"
+#include <array>
+
+#include <chrono>
+
+using namespace std;
+//==============================================================================
+/// Constructor.
+//==============================================================================
+JSphCpuSingle::JSphCpuSingle() :JSphCpu(false) {
+	ClassName = "JSphCpuSingle";
+	CellDivSingle = NULL;
+}
+
+//==============================================================================
+/// Destructor.
+//==============================================================================
+JSphCpuSingle::~JSphCpuSingle() {
+	DestructorActive = true;
+	delete CellDivSingle; CellDivSingle = NULL;
+}
+
+//==============================================================================
+/// Return memory reserved in CPU.
+/// Devuelve la memoria reservada en cpu.
+//==============================================================================
+llong JSphCpuSingle::GetAllocMemoryCpu()const {
+	llong s = JSphCpu::GetAllocMemoryCpu();
+	//-Allocated in other objects.
+	if (CellDivSingle)s += CellDivSingle->GetAllocMemory();
+	return(s);
+}
+
+//==============================================================================
+/// Update maximum values of memory, particles & cells.
+/// Actualiza los valores maximos de memory, particles y cells.
+//==============================================================================
+void JSphCpuSingle::UpdateMaxValues() {
+	const llong mcpu = GetAllocMemoryCpu();
+	MaxNumbers.memcpu = max(MaxNumbers.memcpu, mcpu);
+	MaxNumbers.memgpu = 0;
+	MaxNumbers.particles = max(MaxNumbers.particles, Np);
+	if (CellDivSingle)MaxNumbers.cells = max(MaxNumbers.cells, CellDivSingle->GetNct());
+}
+
+//==============================================================================
+/// Load the execution configuration.
+/// Carga la configuracion de ejecucion.
+//==============================================================================
+void JSphCpuSingle::LoadConfig(const JSphCfgRun* cfg) {
+	//-Load OpenMP configuraction. | Carga configuracion de OpenMP.
+	ConfigOmp(cfg);
+	//-Load basic general configuraction. | Carga configuracion basica general.
+	JSph::LoadConfig(cfg);
+	//-Checks compatibility of selected options.
+	Log->Print("**Special case configuration is loaded");
+}
+
+//==============================================================================
+/// Configuration of current domain.
+/// Configuracion del dominio actual.
+//==============================================================================
+void JSphCpuSingle::ConfigDomain() {
+	//-Configure cell map division (defines ScellDiv, Scell, Map_Cells). 
+	ConfigCellDivision();
+	//-Calculate number of particles. | Calcula numero de particulas.
+	Np = PartsLoaded->GetCount(); Npb = CaseNpb; NpbOk = Npb;
+	//-Allocates fixed memory for moving & floating particles. | Reserva memoria fija para moving y floating.
+	AllocCpuMemoryFixed();
+	//-Allocates memory in CPU for particles. | Reserva memoria en Cpu para particulas.
+	AllocCpuMemoryParticles(Np, 0);
+
+	//-Copies particle data.
+	ReserveBasicArraysCpu();
+	memcpy(Posc, PartsLoaded->GetPos(), sizeof(tdouble3) * Np);
+	memcpy(Idpc, PartsLoaded->GetIdp(), sizeof(unsigned) * Np);
+	memcpy(Velrhopc, PartsLoaded->GetVelRhop(), sizeof(tfloat4) * Np);
+
+	//-Computes radius of floating bodies.
+	if (CaseNfloat && PeriActive != 0 && !PartBegin)CalcFloatingRadius(Np, Posc, Idpc);
+	//-Configures floating motion data storage with high frequency. //<vs_ftmottionsv>  
+	if (FtMotSave)ConfigFtMotionSave(Np, Posc, Idpc);                  //<vs_ftmottionsv>  
+
+	//-Configures Multi-Layer Pistons according particles. | Configura pistones Multi-Layer segun particulas.
+	if (MLPistons)MLPistons->PreparePiston(Dp, Np, Idpc, Posc);
+
+	//-Load particle code. | Carga code de particulas.
+	LoadCodeParticles(Np, Idpc, Codec);
+
+	//-Load normals for boundary particles (fixed and moving).
+	if (UseNormals)LoadBoundNormals(Np, Npb, Idpc, Codec, BoundNormalc);
+
+	//-Runs initialization operations from XML.
+	RunInitialize(Np, Npb, Posc, Idpc, Codec, Velrhopc, BoundNormalc);
+	if (UseNormals)ConfigBoundNormals(Np, Npb, Posc, Idpc, BoundNormalc);
+
+	//-Creates PartsInit object with initial particle data for automatic configurations.
+	CreatePartsInit(Np, Posc, Codec);
+
+	//-Computes MK domain for boundary and fluid particles.
+	MkInfo->ComputeMkDomains(Np, Posc, Codec);
+
+	//-Sets local domain of the simulation within Map_Cells and computes DomCellCode.
+	//-Establece dominio de simulacion local dentro de Map_Cells y calcula DomCellCode.
+	SelecDomain(TUint3(0, 0, 0), Map_Cells);
+	//-Computes inital cell of the particles and checks if there are unexpected excluded particles.
+	//-Calcula celda inicial de particulas y comprueba si hay excluidas inesperadas.
+	LoadDcellParticles(Np, Codec, Posc, Dcellc);
+
+	//-Creates object for Celldiv on the CPU and selects a valid cellmode.
+	//-Crea objeto para divide en CPU y selecciona un cellmode valido.
+
+	CellDivSingle = new JCellDivCpuSingle(Stable, FtCount != 0, PeriActive, CellDomFixed, CellMode
+		, Scell, Map_PosMin, Map_PosMax, Map_Cells, CaseNbound, CaseNfixed, CaseNpb, DirOut);
+	CellDivSingle->DefineDomain(DomCellCode, DomCelIni, DomCelFin, DomPosMin, DomPosMax);
+	ConfigCellDiv((JCellDivCpu*)CellDivSingle);
+
+	ConfigSaveData(0, 1, "");
+
+	//-Reorders particles according to cells.
+	//-Reordena particulas por celda.
+	BoundChanged = true;
+	RunCellDivide(true);
+}
+
+//==============================================================================
+/// Redimension space reserved for particles in CPU, measure 
+/// time consumed using TMC_SuResizeNp. On finishing, update divide.
+///
+/// Redimensiona el espacio reservado para particulas en CPU midiendo el
+/// tiempo consumido con TMC_SuResizeNp. Al terminar actualiza el divide.
+//==============================================================================
+void JSphCpuSingle::ResizeParticlesSize(unsigned newsize, float oversize, bool updatedivide) {
+	Timersc->TmStart(TMC_SuResizeNp);
+	newsize += (oversize > 0 ? unsigned(oversize * newsize) : 0);
+	ResizeCpuMemoryParticles(newsize);
+	Timersc->TmStop(TMC_SuResizeNp);
+	if (updatedivide)RunCellDivide(true);
+}
+
+//==============================================================================
+/// Create list of new periodic particles to duplicate.
+/// With stable activated reordered list of periodic particles.
+///
+/// Crea lista de nuevas particulas periodicas a duplicar.
+/// Con stable activado reordena lista de periodicas.
+//==============================================================================
+unsigned JSphCpuSingle::PeriodicMakeList(unsigned n, unsigned pini, bool stable
+	, unsigned nmax, tdouble3 perinc, const tdouble3* pos, const typecode* code
+	, unsigned* listp)const
+{
+	unsigned count = 0;
+	if (n) {
+		//-Initialize size of list lsph to zero. | Inicializa tamanho de lista lspg a cero.
+		listp[nmax] = 0;
+		for (unsigned p = 0; p < n; p++) {
+			const unsigned p2 = p + pini;
+			//-Keep normal or periodic particles. | Se queda con particulas normales o periodicas.
+			if (CODE_GetSpecialValue(code[p2]) <= CODE_PERIODIC) {
+				//-Get particle position. | Obtiene posicion de particula.
+				const tdouble3 ps = pos[p2];
+				tdouble3 ps2 = ps + perinc;
+				if (Map_PosMin <= ps2 && ps2 < Map_PosMax) {
+					unsigned cp = listp[nmax]; listp[nmax]++; if (cp < nmax)listp[cp] = p2;
+				}
+				ps2 = ps - perinc;
+				if (Map_PosMin <= ps2 && ps2 < Map_PosMax) {
+					unsigned cp = listp[nmax]; listp[nmax]++; if (cp < nmax)listp[cp] = (p2 | 0x80000000);
+				}
+			}
+		}
+		count = listp[nmax];
+		//-Reorder list if it is valid and stability is activated. | Reordena lista si es valida y stable esta activado.
+		if (stable && count && count <= nmax) {
+			//-Don't make mistake because at the moment the list is not created using OpenMP. | No hace falta porque de momento no se crea la lista usando OpenMP.
+		}
+	}
+	return(count);
+}
+
+//==============================================================================
+/// Duplicate the indicated particle position applying displacement.
+/// Duplicated particles are considered to be always valid and are inside
+/// of the domain.
+/// This kernel works for single-cpu & multi-cpu because the computations are done  
+/// starting from domposmin.
+/// It is controlled that the coordinates of the cell do not exceed the maximum.
+///
+/// Duplica la posicion de la particula indicada aplicandole un desplazamiento.
+/// Las particulas duplicadas se considera que siempre son validas y estan dentro
+/// del dominio.
+/// Este kernel vale para single-cpu y multi-cpu porque los calculos se hacen 
+/// a partir de domposmin.
+/// Se controla que las coordendas de celda no sobrepasen el maximo.
+//==============================================================================
+void JSphCpuSingle::PeriodicDuplicatePos(unsigned pnew, unsigned pcopy, bool inverse, double dx, double dy, double dz, tuint3 cellmax, tdouble3* pos, unsigned* dcell)const {
+	//-Get pos of particle to be duplicated. | Obtiene pos de particula a duplicar.
+	tdouble3 ps = pos[pcopy];
+	//-Apply displacement. | Aplica desplazamiento.
+	ps.x += (inverse ? -dx : dx);
+	ps.y += (inverse ? -dy : dy);
+	ps.z += (inverse ? -dz : dz);
+	//-Calculate coordinates of cell inside of domain. | Calcula coordendas de celda dentro de dominio.
+	unsigned cx = unsigned((ps.x - DomPosMin.x) / Scell);
+	unsigned cy = unsigned((ps.y - DomPosMin.y) / Scell);
+	unsigned cz = unsigned((ps.z - DomPosMin.z) / Scell);
+	//-Adjust coordinates of cell is they exceed maximum. | Ajusta las coordendas de celda si sobrepasan el maximo.
+	cx = (cx <= cellmax.x ? cx : cellmax.x);
+	cy = (cy <= cellmax.y ? cy : cellmax.y);
+	cz = (cz <= cellmax.z ? cz : cellmax.z);
+	//-Record position and cell of new particles. |  Graba posicion y celda de nuevas particulas.
+	pos[pnew] = ps;
+	dcell[pnew] = DCEL_Cell(DomCellCode, cx, cy, cz);
+}
+
+//==============================================================================
+/// Create periodic particles starting from a list of the particles to duplicate.
+/// Assume that all the particles are valid.
+/// This kernel works for single-cpu & multi-cpu because it uses domposmin.
+///
+/// Crea particulas periodicas a partir de una lista con las particulas a duplicar.
+/// Se presupone que todas las particulas son validas.
+/// Este kernel vale para single-cpu y multi-cpu porque usa domposmin. 
+//==============================================================================
+void JSphCpuSingle::PeriodicDuplicateVerlet(unsigned np, unsigned pini, tuint3 cellmax
+	, tdouble3 perinc, const unsigned* listp, unsigned* idp, typecode* code, unsigned* dcell
+	, tdouble3* pos, tfloat4* velrhop, tsymatrix3f* spstau, tfloat4* velrhopm1) const
+{
+	const int n = int(np);
+#ifdef OMP_USE
+#pragma omp parallel for schedule (static) if(n>OMP_LIMIT_COMPUTELIGHT)
+#endif
+	for (int p = 0; p < n; p++) {
+		const unsigned pnew = unsigned(p) + pini;
+		const unsigned rp = listp[p];
+		const unsigned pcopy = (rp & 0x7FFFFFFF);
+		//-Adjust position and cell of new particle. | Ajusta posicion y celda de nueva particula.
+		PeriodicDuplicatePos(pnew, pcopy, (rp >= 0x80000000), perinc.x, perinc.y, perinc.z, cellmax, pos, dcell);
+		//-Copy the rest of the values. | Copia el resto de datos.
+		idp[pnew] = idp[pcopy];
+		code[pnew] = CODE_SetPeriodic(code[pcopy]);
+		velrhop[pnew] = velrhop[pcopy];
+		velrhopm1[pnew] = velrhopm1[pcopy];
+		if (spstau)spstau[pnew] = spstau[pcopy];
+	}
+}
+
+//==============================================================================
+/// Create periodic particles starting from a list of the particles to duplicate.
+/// Assume that all the particles are valid.
+/// This kernel works for single-cpu & multi-cpu because it uses domposmin.
+///
+/// Crea particulas periodicas a partir de una lista con las particulas a duplicar.
+/// Se presupone que todas las particulas son validas.
+/// Este kernel vale para single-cpu y multi-cpu porque usa domposmin. 
+//==============================================================================
+void JSphCpuSingle::PeriodicDuplicateSymplectic(unsigned np, unsigned pini, tuint3 cellmax, tdouble3 perinc, const unsigned* listp
+	, unsigned* idp, typecode* code, unsigned* dcell, tdouble3* pos, tfloat4* velrhop, tsymatrix3f* spstau, tdouble3* pospre, tfloat4* velrhoppre)const
+{
+	const int n = int(np);
+#ifdef OMP_USE
+#pragma omp parallel for schedule (static) if(n>OMP_LIMIT_COMPUTELIGHT)
+#endif
+	for (int p = 0; p < n; p++) {
+		const unsigned pnew = unsigned(p) + pini;
+		const unsigned rp = listp[p];
+		const unsigned pcopy = (rp & 0x7FFFFFFF);
+		//-Adjust position and cell of new particle. | Ajusta posicion y celda de nueva particula.
+		PeriodicDuplicatePos(pnew, pcopy, (rp >= 0x80000000), perinc.x, perinc.y, perinc.z, cellmax, pos, dcell);
+		//-Copy the rest of the values. | Copia el resto de datos.
+		idp[pnew] = idp[pcopy];
+		code[pnew] = CODE_SetPeriodic(code[pcopy]);
+		velrhop[pnew] = velrhop[pcopy];
+		if (pospre)pospre[pnew] = pospre[pcopy];
+		if (velrhoppre)velrhoppre[pnew] = velrhoppre[pcopy];
+		if (spstau)spstau[pnew] = spstau[pcopy];
+	}
+}
+
+//==============================================================================
+/// Create periodic particles starting from a list of the particles to duplicate.
+/// Assume that all the particles are valid.
+/// This kernel works for single-cpu & multi-cpu because it uses domposmin.
+///
+/// Crea particulas periodicas a partir de una lista con las particulas a duplicar.
+/// Se presupone que todas las particulas son validas.
+/// Este kernel vale para single-cpu y multi-cpu porque usa domposmin. 
+//==============================================================================
+void JSphCpuSingle::PeriodicDuplicateNormals(unsigned np, unsigned pini, tuint3 cellmax
+	, tdouble3 perinc, const unsigned* listp, tfloat3* normals, tfloat3* motionvel)const
+{
+	const int n = int(np);
+#ifdef OMP_USE
+#pragma omp parallel for schedule (static) if(n>OMP_LIMIT_COMPUTELIGHT)
+#endif
+	for (int p = 0; p < n; p++) {
+		const unsigned pnew = unsigned(p) + pini;
+		const unsigned rp = listp[p];
+		const unsigned pcopy = (rp & 0x7FFFFFFF);
+		normals[pnew] = normals[pcopy];
+		if (motionvel)motionvel[pnew] = motionvel[pcopy];
+	}
+}
+
+//==============================================================================
+/// Create duplicate particles for periodic conditions.
+/// Create new periodic particles and mark the old ones to be ignored.
+/// New periodic particles are created from Np of the beginning, first the NpbPer
+/// of the boundry and then the NpfPer fluid ones. The Np of the those leaving contains also the
+/// new periodic ones.
+///
+/// Crea particulas duplicadas de condiciones periodicas.
+/// Crea nuevas particulas periodicas y marca las viejas para ignorarlas.
+/// Las nuevas periodicas se situan a partir del Np de entrada, primero las NpbPer
+/// de contorno y despues las NpfPer fluidas. El Np de salida contiene tambien las
+/// nuevas periodicas.
+//==============================================================================
+void JSphCpuSingle::RunPeriodic() {
+	Timersc->TmStart(TMC_SuPeriodic);
+	//-Keep number of present periodic. | Guarda numero de periodicas actuales.
+	NpfPerM1 = NpfPer;
+	NpbPerM1 = NpbPer;
+	//-Mark present periodic particles to ignore. | Marca periodicas actuales para ignorar.
+	for (unsigned p = 0; p < Np; p++) {
+		const typecode rcode = Codec[p];
+		if (CODE_IsPeriodic(rcode))Codec[p] = CODE_SetOutIgnore(rcode);
+	}
+	//-Create new periodic particles. | Crea las nuevas periodicas.
+	const unsigned npb0 = Npb;
+	const unsigned npf0 = Np - Npb;
+	const unsigned np0 = Np;
+	NpbPer = NpfPer = 0;
+	BoundChanged = true;
+	for (unsigned ctype = 0; ctype < 2; ctype++) {//-0:bound, 1:fluid+floating.
+		//-Calculate range of particles to be examined (bound or fluid). | Calcula rango de particulas a examinar (bound o fluid).
+		const unsigned pini = (ctype ? npb0 : 0);
+		const unsigned num = (ctype ? npf0 : npb0);
+		//-Search for periodic in each direction (X, Y, or Z). | Busca periodicas en cada eje (X, Y e Z).
+		for (unsigned cper = 0; cper < 3; cper++)if ((cper == 0 && PeriX) || (cper == 1 && PeriY) || (cper == 2 && PeriZ)) {
+			tdouble3 perinc = (cper == 0 ? PeriXinc : (cper == 1 ? PeriYinc : PeriZinc));
+			//-First search in the list of new periodic particles and then in the initial list of particles (this is needed for periodic particles in more than one direction).
+			//-Primero busca en la lista de periodicas nuevas y despues en la lista inicial de particulas (necesario para periodicas en mas de un eje).
+			for (unsigned cblock = 0; cblock < 2; cblock++) {//-0:new periodic, 1:original particles. | 0:periodicas nuevas, 1:particulas originales
+				const unsigned nper = (ctype ? NpfPer : NpbPer); //-Number of new periodic particles of type to be processed. | Numero de periodicas nuevas del tipo a procesar.
+				const unsigned pini2 = (cblock ? pini : Np - nper);
+				const unsigned num2 = (cblock ? num : nper);
+				//-Repeat the search if the resulting memory available is insufficient and it had to be increased.
+				//-Repite la busqueda si la memoria disponible resulto insuficiente y hubo que aumentarla.
+				bool run = true;
+				while (run && num2) {
+					//-Reserve memory to create list of periodic particles. | Reserva memoria para crear lista de particulas periodicas.
+					unsigned* listp = ArraysCpu->ReserveUint();
+					unsigned nmax = CpuParticlesSize - 1; //-Maximmum number of particles that fit in the list. | Numero maximo de particulas que caben en la lista.
+					//-Generate list of new periodic particles. | Genera lista de nuevas periodicas.
+					if (Np >= 0x80000000)Run_Exceptioon("The number of particles is too big.");//-Because the last bit is used to mark the direction in which a new periodic particle is created. | Porque el ultimo bit se usa para marcar el sentido en que se crea la nueva periodica.
+					unsigned count = PeriodicMakeList(num2, pini2, Stable, nmax, perinc, Posc, Codec, listp);
+					//-Redimension memory for particles if there is insufficient space and repeat the search process.
+					//-Redimensiona memoria para particulas si no hay espacio suficiente y repite el proceso de busqueda.
+					if (count > nmax || !CheckCpuParticlesSize(count + Np)) {
+						ArraysCpu->Free(listp); listp = NULL;
+						Timersc->TmStop(TMC_SuPeriodic);
+						ResizeParticlesSize(Np + count, PERIODIC_OVERMEMORYNP, false);
+						Timersc->TmStart(TMC_SuPeriodic);
+					}
+					else {
+						run = false;
+						//-Create new duplicate periodic particles in the list
+						//-Crea nuevas particulas periodicas duplicando las particulas de la lista.
+						if (TStep == STEP_Verlet)PeriodicDuplicateVerlet(count, Np, DomCells, perinc, listp, Idpc, Codec, Dcellc, Posc, Velrhopc, SpsTauc, VelrhopM1c);
+						if (TStep == STEP_Symplectic) {
+							if ((PosPrec || VelrhopPrec) && (!PosPrec || !VelrhopPrec))Run_Exceptioon("Symplectic data is invalid.");
+							PeriodicDuplicateSymplectic(count, Np, DomCells, perinc, listp, Idpc, Codec, Dcellc, Posc, Velrhopc, SpsTauc, PosPrec, VelrhopPrec);
+						}
+						if (UseNormals)PeriodicDuplicateNormals(count, Np, DomCells, perinc, listp, BoundNormalc, MotionVelc);
+
+						//-Free the list and update the number of particles. | Libera lista y actualiza numero de particulas.
+						ArraysCpu->Free(listp); listp = NULL;
+						Np += count;
+						//-Update number of new periodic particles. | Actualiza numero de periodicas nuevas.
+						if (!ctype)NpbPer += count;
+						else NpfPer += count;
+					}
+				}
+			}
+		}
+	}
+	Timersc->TmStop(TMC_SuPeriodic);
+}
+
+//==============================================================================
+/// Executes divide of particles in cells.
+/// Ejecuta divide de particulas en celdas.
+//==============================================================================
+//STEP 2: Cell division
+void JSphCpuSingle::RunCellDivide(bool updateperiodic) {
+	DivData = DivDataCpuNull();
+	if (CaseNdeformstruc > 0) BoundChanged = true;
+	//-Creates new periodic particles and marks the old ones to be ignored.
+	//-Crea nuevas particulas periodicas y marca las viejas para ignorarlas.
+	if (updateperiodic && PeriActive)RunPeriodic();
+	//-Initiates Divide.
+	CellDivSingle->Divide(Npb, Np - Npb - NpbPer - NpfPer, NpbPer, NpfPer, BoundChanged
+		, Dcellc, Codec, Idpc, Posc, Timersc);
+	DivData = CellDivSingle->GetCellDivData();
+
+	//-Sorts particle data. | Ordena datos de particulas.
+	Timersc->TmStart(TMC_NlSortData);
+	CellDivSingle->SortArray(Idpc);
+	CellDivSingle->SortArray(Codec);
+	CellDivSingle->SortArray(Dcellc);
+	CellDivSingle->SortArray(Posc);
+	CellDivSingle->SortArray(Velrhopc);
+	if (TStep == STEP_Verlet) {
+		CellDivSingle->SortArray(VelrhopM1c);
+	}
+	else if (TStep == STEP_Symplectic && (PosPrec || VelrhopPrec)) {//-In reality, this is only necessary in divide for corrector, not in predictor??? | En realidad solo es necesario en el divide del corrector, no en el predictor???
+		if (!PosPrec || !VelrhopPrec)Run_Exceptioon("Symplectic data is invalid.");
+		CellDivSingle->SortArray(PosPrec);
+		CellDivSingle->SortArray(VelrhopPrec);
+	}
+	if (TVisco == VISCO_LaminarSPS)CellDivSingle->SortArray(SpsTauc);
+	if (UseNormals) {
+		CellDivSingle->SortArray(BoundNormalc);
+		if (MotionVelc)CellDivSingle->SortArray(MotionVelc);
+	}
+	if (DeformStruc && DeformStrucRidp)CellDivSingle->UpdateIndices(CaseNdeformstruc, DeformStrucRidp);
+	//-Collect divide data. | Recupera datos del divide.
+	Np = CellDivSingle->GetNpFinal();
+	Npb = CellDivSingle->GetNpbFinal();
+	NpbOk = Npb - CellDivSingle->GetNpbIgnore();
+
+	//-Manages excluded particles fixed, moving and floating before aborting the execution.
+	if (CellDivSingle->GetNpbOut())AbortBoundOut();
+
+	//-Collect position of floating particles. | Recupera posiciones de floatings.
+	if (CaseNfloat)CalcRidp(PeriActive != 0, Np - Npb, Npb, CaseNpb, CaseNpb + CaseNfloat, Codec, Idpc, FtRidp);
+	Timersc->TmStop(TMC_NlSortData);
+
+	//-Control of excluded particles (only fluid because excluded boundary are checked before).
+	//-Gestion de particulas excluidas (solo fluid porque las boundary excluidas se comprueban antes).
+	Timersc->TmStart(TMC_NlOutCheck);
+	unsigned npfout = CellDivSingle->GetNpfOut();
+	if (npfout) {
+		unsigned* idp = ArraysCpu->ReserveUint();
+		tdouble3* pos = ArraysCpu->ReserveDouble3();
+		tfloat3* vel = ArraysCpu->ReserveFloat3();
+		float* rhop = ArraysCpu->ReserveFloat();
+		float* pressp = ArraysCpu->ReserveFloat();
+		typecode* code = ArraysCpu->ReserveTypeCode();
+		unsigned num = GetParticlesData(npfout, Np, false, idp, pos, vel, rhop, code);
+		AddParticlesOut(npfout, idp, pos, vel, rhop, code);
+		ArraysCpu->Free(idp);
+		ArraysCpu->Free(pos);
+		ArraysCpu->Free(vel);
+		ArraysCpu->Free(rhop);
+		ArraysCpu->Free(pressp);
+		ArraysCpu->Free(code);
+	}
+	Timersc->TmStop(TMC_NlOutCheck);
+	BoundChanged = false;
+}
+
+//==============================================================================
+/// Executes divide of particles in cells for deformable structures.
+//==============================================================================
+void JSphCpuSingle::DSRunCellDivide() {
+	DSDivData = DivDataCpuNull();
+	DSCellDivSingle->DSDivide(MapNdeformstruc, DSDcellc, DSCode, Timersc);
+	DSDivData = DSCellDivSingle->GetCellDivData();
+}
+
+void JSphCpuSingle::DSRunSurfCellDivide(unsigned DSNpSurf, unsigned* DSDcellSurfc) {
+	DSDivData = DivDataCpuNull();
+	DSCellDivSingle->DSDivide(DSNpSurf, DSDcellSurfc, DSCode, Timersc);
+	DSDivData = DSCellDivSingle->GetCellDivData();
+}
+
+//==============================================================================
+/// Manages excluded particles fixed, moving and floating before aborting the execution.
+/// Gestiona particulas excluidas fixed, moving y floating antes de abortar la ejecucion.
+//==============================================================================
+void JSphCpuSingle::AbortBoundOut() {
+	const unsigned nboundout = CellDivSingle->GetNpbOut();
+	//-Get data of excluded boundary particles.
+	unsigned* idp = ArraysCpu->ReserveUint();
+	tdouble3* pos = ArraysCpu->ReserveDouble3();
+	tfloat3* vel = ArraysCpu->ReserveFloat3();
+	float* rhop = ArraysCpu->ReserveFloat();
+	typecode* code = ArraysCpu->ReserveTypeCode();
+	GetParticlesData(nboundout, Np, false, idp, pos, vel, rhop, code);
+	//-Shows excluded particles information and aborts execution.
+	JSph::AbortBoundOut(Log, nboundout, idp, pos, vel, rhop, code);
+}
+
+//==============================================================================
+/// Interaction to calculate forces.
+/// Interaccion para el calculo de fuerzas.
+//==============================================================================
+void JSphCpuSingle::Interaction_Forces(TpInterStep interstep) {
+	if (TBoundary == BC_MDBC && (MdbcCorrector || interstep != INTERSTEP_SymCorrector))MdbcBoundCorrection(); //-Boundary correction for mDBC.
+	InterStep = interstep;
+	PreInteraction_Forces();
+	tfloat3* dengradcorr = NULL;
+	CaseNmoving;
+	Timersc->TmStart(TMC_CfForces);
+	//-Interaction of Fluid-Fluid/Bound & Bound-Fluid (forces and DEM). | Interaccion Fluid-Fluid/Bound & Bound-Fluid (forces and DEM).
+	const stinterparmsc parms = StInterparmsc(Np, Npb, NpbOk
+		, DivData, Dcellc
+		, Posc, Velrhopc, Idpc, Codec, Pressc, dengradcorr
+		, Arc, Acec, Deltac
+		, ShiftingMode, ShiftPosfsc
+		, SpsTauc, SpsGradvelc
+	);
+	StInterResultc res;
+	res.viscdt = 0;
+	JSphCpu::Interaction_Forces_ct(parms, res);
+
+	//-For 2-D simulations zero the 2nd component. | Para simulaciones 2D anula siempre la 2nd componente.
+	if (Simulate2D) {
+		const int ini = int(Npb), fin = int(Np), npf = int(Np - Npb);
+#ifdef OMP_USE
+#pragma omp parallel for schedule (static) if(npf>OMP_LIMIT_COMPUTELIGHT)
+#endif
+		for (int p = ini; p < fin; p++)Acec[p].y = 0;
+	}
+
+	//-Add Delta-SPH correction to Arg[]. | Anhade correccion de Delta-SPH a Arg[].
+	if (Deltac) {
+		const int ini = int(Npb), fin = int(Np), npf = int(Np - Npb);
+#ifdef OMP_USE
+#pragma omp parallel for schedule (static) if(npf>OMP_LIMIT_COMPUTELIGHT)
+#endif
+		for (int p = ini; p < fin; p++)if (Deltac[p] != FLT_MAX)Arc[p] += Deltac[p];
+	}
+
+	//-Calculates maximum value of ViscDt.
+	ViscDtMax = res.viscdt;
+	//-Calculates maximum value of Ace (periodic particles are ignored).
+	AceMax = ComputeAceMax();
+
+	Timersc->TmStop(TMC_CfForces);
+}
+
+//==============================================================================
+/// Calculates extrapolated data on boundary particles from fluid domain for mDBC.
+/// Calcula datos extrapolados en el contorno para mDBC.
+//==============================================================================
+void JSphCpuSingle::MdbcBoundCorrection() {
+	Timersc->TmStart(TMC_CfPreForces);
+	Interaction_MdbcCorrection(SlipMode, DivData, Posc, Codec, Idpc, BoundNormalc, MotionVelc, Velrhopc);
+	Timersc->TmStop(TMC_CfPreForces);
+}
+
+
+//==============================================================================
+/// Returns maximum value of ace (modulus), periodic and inout particles must be ignored.
+/// Devuelve el valor maximo de ace (modulo), se deben ignorar las particulas periodicas e inout.
+//==============================================================================
+double JSphCpuSingle::ComputeAceMax()const {
+	const bool check = (PeriActive != 0 || InOut != NULL);
+	const unsigned pini = Npb;
+	if (check)return(ComputeAceMaxOmp<true >(Np - pini, Acec + pini, Codec + pini));
+	else     return(ComputeAceMaxOmp<false>(Np - pini, Acec + pini, Codec + pini));
+}
+
+//==============================================================================
+/// Returns maximum value of ace (modulus), periodic particles must be ignored.
+/// Devuelve el valor maximo de ace (modulo), se deben ignorar las particulas periodicas.
+//==============================================================================
+template<bool checkcode> inline double JSphCpuSingle::ComputeAceMaxSeq(unsigned np
+	, const tfloat3* ace, const typecode* code)const
+{
+	float acemax = 0;
+	const int n = int(np);
+	for (int p = 0; p < n; p++) {
+		const typecode cod = (checkcode ? code[p] : 0);
+		const tfloat3 a = (!checkcode || (CODE_IsNormal(cod) && !CODE_IsFluidInout(cod)) ? ace[p] : TFloat3(0));
+		const float a2 = a.x * a.x + a.y * a.y + a.z * a.z;
+		acemax = max(acemax, a2);
+	}
+	return(sqrt(double(acemax)));
+}
+
+//==============================================================================
+/// Returns maximum value of ace (modulus) using OpenMP, periodic particles must be ignored.
+/// Devuelve el valor maximo de ace (modulo) using OpenMP, se deben ignorar las particulas periodicas.
+//==============================================================================
+template<bool checkcode> inline double JSphCpuSingle::ComputeAceMaxOmp(unsigned np
+	, const tfloat3* ace, const typecode* code)const
+{
+	double acemax = 0;
+#ifdef OMP_USE
+	if (np > OMP_LIMIT_COMPUTELIGHT) {
+		const int n = int(np);
+		if (n < 0)Run_Exceptioon("Number of values is too big.");
+		float amax = 0;
+#pragma omp parallel 
+		{
+			float amax2 = 0;
+#pragma omp for nowait
+			for (int p = 0; p < n; ++p) {
+				const typecode cod = (checkcode ? code[p] : 0);
+				const tfloat3 a = (!checkcode || (CODE_IsNormal(cod) && !CODE_IsFluidInout(cod)) ? ace[p] : TFloat3(0));
+				const float a2 = a.x * a.x + a.y * a.y + a.z * a.z;
+				if (amax2 < a2)amax2 = a2;
+			}
+#pragma omp critical 
+			{
+				if (amax < amax2)amax = amax2;
+			}
+		}
+		//-Saves result.
+		acemax = sqrt(double(amax));
+	}
+	else if (np)acemax = ComputeAceMaxSeq<checkcode>(np, ace, code);
+#else
+	if (np)acemax = ComputeAceMaxSeq<checkcode>(np, ace, code);
+#endif
+	return(acemax);
+}
+
+//<vs_ddramp_ini>
+//==============================================================================
+/// Applies initial DDT ramp.
+//==============================================================================
+void JSphCpuSingle::RunInitialDDTRamp() {
+	if (TimeStep < DDTRamp.x) {
+		if ((Nstep % 10) == 0) {//-DDTkh value is updated every 10 calculation steps.
+			if (TimeStep <= DDTRamp.y)DDTkh = KernelSize * float(DDTRamp.z);
+			else {
+				const double tt = TimeStep - DDTRamp.y;
+				const double tr = DDTRamp.x - DDTRamp.y;
+				DDTkh = KernelSize * float(((tr - tt) / tr) * (DDTRamp.z - DDTValue) + DDTValue);
+			}
+		}
+	}
+	else {
+		if (DDTkh != DDTkhCte)CSP.ddtkh = DDTkh = DDTkhCte;
+		DDTRamp.x = 0;
+	}
+}//<vs_ddramp_end>
+
+//==============================================================================
+/// Perform interactions and updates of particles according to forces 
+/// calculated in the interaction using Verlet.
+///
+/// Realiza interaccion y actualizacion de particulas segun las fuerzas 
+/// calculadas en la interaccion usando Verlet.
+//==============================================================================
+template<bool rundefstruc, bool simulate2d, bool defsttm, TpKernel tkernel>
+double JSphCpuSingle::ComputeStep_Ver() {
+	Interaction_Forces(INTERSTEP_Verlet);			//-Interaction.
+	const double dt = DtVariable(true);							//-Calculate new dt.
+	if (CaseNmoving) CalcMotion(dt);							//-Calculate motion for moving bodies.
+	DemDtForce = dt;											//(DEM)
+	if (Shifting)RunShifting(dt);								//-Shifting.
+	ComputeVerlet(dt);											//-Update particles using Verlet.
+
+	if (rundefstruc)
+	{
+		Timersc->TmStart(TMC_SuDeformStruc);
+		DSComputeStep_Ver<simulate2d, defsttm>(dt);
+		Timersc->TmStop(TMC_SuDeformStruc);
+	}
+
+	if (CaseNfloat)RunFloating(dt, false);						//-Control of floating bodies.
+	PosInteraction_Forces();									//-Free memory used for interaction.
+	if (Damping) RunDamping(dt, Np, Npb, Posc, Codec, Velrhopc);	//-Applies Damping.
+	if (RelaxZones) RunRelaxZone(dt);								//-Generate waves using RZ.
+	return(dt);
+}
+
+//==============================================================================
+/// Perform interactions and updates of particles according to forces 
+/// calculated in the interaction using Symplectic.
+///
+/// Realiza interaccion y actualizacion de particulas segun las fuerzas 
+/// calculadas en la interaccion usando Symplectic.
+//==============================================================================
+template<bool rundefstruc, bool simulate2d, bool defsttm, TpKernel tkernel>
+double JSphCpuSingle::ComputeStep_Sym() {
+	const double dt = SymplecticDtPre;
+	const double halfdt = dt * .5;
+
+	if (CaseNmoving)CalcMotion(dt);								//-Calculate motion for moving bodies.
+
+	//-Predictor
+	//-----------
+	DemDtForce = halfdt;											//(DEM)
+	Interaction_Forces(INTERSTEP_SymPredictor);						//-Interaction.
+
+	const double ddt_p = DtVariable(false);				//-Calculate dt of predictor step.
+	if (Shifting)RunShifting(halfdt);								//-Shifting.
+
+
+	ComputeSymplecticPre(dt);										//-Apply Symplectic-Predictor to particles (periodic particles become invalid).
+	if (CaseNfloat)RunFloating(halfdt, true);						//-Control of floating bodies.
+
+	//-Computes new position and velocity for deformable structures.
+	if (rundefstruc) {
+		Timersc->TmStart(TMC_SuDeformStruc);
+		DSComputeStep_Sym<simulate2d, defsttm>(halfdt, TimeStep);
+		BoundChanged = true;
+		Timersc->TmStop(TMC_SuDeformStruc);
+	}
+
+	PosInteraction_Forces();										//-Free memory used for interaction.
+
+
+	//-Corrector
+	//-----------
+	DemDtForce = dt;												//(DEM)
+	RunCellDivide(true);
+	Interaction_Forces(INTERSTEP_SymCorrector);						//-Interaction.
+	const double ddt_c = DtVariable(true);							//-Calculate dt of corrector step.
+	if (Shifting)RunShifting(dt);									//-Shifting.
+
+	ComputeSymplecticCorr(dt);										//-Apply Symplectic-Corrector to particles (periodic particles become invalid).
+	if (CaseNfloat)RunFloating(dt, false);							//-Control of floating bodies.
+	//-Computes new position and velocity for deformable structures.
+	if (rundefstruc) {
+		Timersc->TmStart(TMC_SuDeformStruc);
+		DSComputeStep_Sym<simulate2d, defsttm>(halfdt, TimeStep + halfdt);
+		BoundChanged = true;
+		Timersc->TmStop(TMC_SuDeformStruc);
+	}
+
+	PosInteraction_Forces();										//-Free memory used for interaction.
+	if (Damping)RunDamping(dt, Np, Npb, Posc, Codec, Velrhopc);		//-Applies Damping.
+	if (RelaxZones)RunRelaxZone(dt);								//-Generate waves using RZ.
+	SymplecticDtPre = min(ddt_p, ddt_c);							//-Calculate dt for next ComputeStep.
+	return(dt);
+}
+
+//template<bool simulate2d, bool defsttm, TpKernel tkernel, bool tcontact> 
+//inline double JSphCpuSingle::ComputeStep_Sym(const double defstrucmantstep) {
+//	double dtt;
+//	if (DeformStruc) dtt = ComputeStep_Sym_ct0<true,simulate2d,defsttm,tkernel, tcontact>(defstrucmantstep);
+//	else dtt = ComputeStep_Sym_ct0<false, simulate2d, defsttm, tkernel, tcontact>(defstrucmantstep);
+//	return dtt;
+//}
+
+//==============================================================================
+/// Calculate distance between floating particles & centre according to periodic conditions.
+/// Calcula distancia entre pariculas floatin y centro segun condiciones periodicas.
+//==============================================================================
+tfloat3 JSphCpuSingle::FtPeriodicDist(const tdouble3& pos, const tdouble3& center, float radius)const {
+	tdouble3 distd = (pos - center);
+	if (PeriX && fabs(distd.x) > radius) {
+		if (distd.x > 0)distd = distd + PeriXinc;
+		else distd = distd - PeriXinc;
+	}
+	if (PeriY && fabs(distd.y) > radius) {
+		if (distd.y > 0)distd = distd + PeriYinc;
+		else distd = distd - PeriYinc;
+	}
+	if (PeriZ && fabs(distd.z) > radius) {
+		if (distd.z > 0)distd = distd + PeriZinc;
+		else distd = distd - PeriZinc;
+	}
+	return(ToTFloat3(distd));
+}
+
+//==============================================================================
+/// Calculate summation of linear and angular forces starting from acceleration of particles.
+/// Calcula suma de fuerzas lineal y angular a partir de la aceleracion de las particulas.
+//==============================================================================
+void JSphCpuSingle::FtCalcForcesSum(unsigned cf, tfloat3& face, tfloat3& fomegaace)const {
+	const StFloatingData& fobj = FtObjs[cf];
+	const unsigned fpini = fobj.begin - CaseNpb;
+	const unsigned fpfin = fpini + fobj.count;
+	const float fradius = fobj.radius;
+	const tdouble3 fcenter = fobj.center;
+	const float fmassp = fobj.massp;
+
+	//-Computes sumation of forces starting from acceleration of particles.
+	face = TFloat3(0);
+	fomegaace = TFloat3(0);
+	//-Calculate summatorio: face, fomegaace. | Calcula sumatorios: face, fomegaace.
+	for (unsigned fp = fpini; fp < fpfin; fp++) {
+		int p = FtRidp[fp];
+		const tfloat3 force = Acec[p] * fmassp;
+		face = face + force;
+		const tfloat3 dist = (PeriActive ? FtPeriodicDist(Posc[p], fcenter, fradius) : ToTFloat3(Posc[p] - fcenter));
+		fomegaace.x += force.z * dist.y - force.y * dist.z;
+		fomegaace.y += force.x * dist.z - force.z * dist.x;
+		fomegaace.z += force.y * dist.x - force.x * dist.y;
+	}
+}
+
+//==============================================================================
+/// Computes final acceleration from particles and from external forces to ftoforces[].
+/// Calcula aceleracion final a parti de particulas y de fuerzas externas en ftoforces[].
+//==============================================================================
+void JSphCpuSingle::FtCalcForces(StFtoForces* ftoforces)const {
+	const int ftcount = int(FtCount);
+#ifdef OMP_USE
+#pragma omp parallel for schedule (guided)
+#endif
+	for (int cf = 0; cf < ftcount; cf++) {
+		const StFloatingData fobj = FtObjs[cf];
+		const float fmass = fobj.mass;
+		const tfloat3 fang = fobj.angles;
+		tmatrix3f inert = fobj.inertiaini;
+
+		//-Compute a cumulative rotation matrix.
+		const tmatrix3f frot = fmath::RotMatrix3x3(fang);
+		//-Compute the inertia tensor by rotating the initial tensor to the curent orientation I=(R*I_0)*R^T.
+		inert = fmath::MulMatrix3x3(fmath::MulMatrix3x3(frot, inert), fmath::TrasMatrix3x3(frot));
+		//-Calculates the inverse of the inertia matrix to compute the I^-1 * L= W
+		const tmatrix3f invinert = fmath::InverseMatrix3x3(inert);
+
+		//-Compute summation of linear and angular forces starting from acceleration of particles.
+		tfloat3 face, fomegaace;
+		FtCalcForcesSum(cf, face, fomegaace);
+		//-Adds inital external forces from ForcePoints, Moorings and external files.
+		face = face + ftoforces[cf].face;
+		fomegaace = fomegaace + ftoforces[cf].fomegaace;
+
+		//-Calculate omega starting from fomegaace & invinert. | Calcula omega a partir de fomegaace y invinert.
+		{
+			tfloat3 omegaace;
+			omegaace.x = (fomegaace.x * invinert.a11 + fomegaace.y * invinert.a12 + fomegaace.z * invinert.a13);
+			omegaace.y = (fomegaace.x * invinert.a21 + fomegaace.y * invinert.a22 + fomegaace.z * invinert.a23);
+			omegaace.z = (fomegaace.x * invinert.a31 + fomegaace.y * invinert.a32 + fomegaace.z * invinert.a33);
+			fomegaace = omegaace;
+		}
+		//-Add gravity force and divide by mass. | Suma fuerza de gravedad y divide por la masa.
+		face.x = (face.x + fmass * Gravity.x) / fmass;
+		face.y = (face.y + fmass * Gravity.y) / fmass;
+		face.z = (face.z + fmass * Gravity.z) / fmass;
+		//-Keep result in ftoforces[]. | Guarda resultados en ftoforces[].
+		ftoforces[cf].face = face; //-Saves acceleration (forces/fmass);
+		ftoforces[cf].fomegaace = fomegaace;
+	}
+}
+
+//==============================================================================
+/// Calculate data to update floatings.
+/// Calcula datos para actualizar floatings.
+//==============================================================================
+void JSphCpuSingle::FtCalcForcesRes(double dt, const StFtoForces* ftoforces, StFtoForcesRes* ftoforcesres)const {
+	for (unsigned cf = 0; cf < FtCount; cf++) {
+		//-Get Floating object values. | Obtiene datos de floating.
+		const StFloatingData fobj = FtObjs[cf];
+		//-Compute fomega. | Calculo de fomega.
+		tfloat3 fomega = fobj.fomega;
+		{
+			const tfloat3 omegaace = ftoforces[cf].fomegaace;
+			fomega.x = float(dt * omegaace.x + fomega.x);
+			fomega.y = float(dt * omegaace.y + fomega.y);
+			fomega.z = float(dt * omegaace.z + fomega.z);
+		}
+		tfloat3 fvel = fobj.fvel;
+		//if(!cf)printf("--->fvel  f%d(%f,%f,%f)\n",cf,fvel.x,fvel.y,fvel.z);
+
+		//-Zero components for 2-D simulation. | Anula componentes para 2D.
+		tfloat3 face = ftoforces[cf].face;
+		if (Simulate2D) { face.y = 0; fomega.x = 0; fomega.z = 0; fvel.y = 0; }
+		//-Compute fcenter. | Calculo de fcenter.
+		tdouble3 fcenter = fobj.center;
+		fcenter.x += dt * fvel.x;
+		fcenter.y += dt * fvel.y;
+		fcenter.z += dt * fvel.z;
+		//-Compute fvel. | Calculo de fvel.
+		fvel.x = float(dt * face.x + fvel.x);
+		fvel.y = float(dt * face.y + fvel.y);
+		fvel.z = float(dt * face.z + fvel.z);
+		//-Store data to update floating. | Guarda datos para actualizar floatings.
+		FtoForcesRes[cf].fomegares = fomega;
+		FtoForcesRes[cf].fvelres = fvel;
+		FtoForcesRes[cf].fcenterres = fcenter;
+	}
+}
+
+//==============================================================================
+/// Applies motion constraints.
+/// Aplica restricciones de movimiento.
+//==============================================================================
+void JSphCpuSingle::FtApplyConstraints(StFtoForces* ftoforces, StFtoForcesRes* ftoforcesres)const {
+	for (unsigned cf = 0; cf < FtCount; cf++) {
+		const StFloatingData fobj = FtObjs[cf];
+		if (fobj.constraints != FTCON_Free) {
+			ApplyConstraints(fobj.constraints, ftoforces[cf].face, ftoforces[cf].fomegaace);
+			ApplyConstraints(fobj.constraints, ftoforcesres[cf].fvelres, ftoforcesres[cf].fomegares);
+		}
+	}
+}
+
+//==============================================================================
+/// Applies imposed velocity.
+/// Aplica velocidad predefinida.
+//==============================================================================
+void JSphCpuSingle::FtApplyImposedVel(StFtoForcesRes* ftoforcesres)const {
+	for (unsigned cf = 0; cf < FtCount; cf++)if (!FtObjs[cf].usechrono && (FtLinearVel[cf] != NULL || FtAngularVel[cf] != NULL)) {
+		if (FtLinearVel[cf] != NULL) {
+			const tfloat3 v = FtLinearVel[cf]->GetValue3f(TimeStep);
+			if (v.x != FLT_MAX)FtoForcesRes[cf].fvelres.x = v.x;
+			if (v.y != FLT_MAX)FtoForcesRes[cf].fvelres.y = v.y;
+			if (v.z != FLT_MAX)FtoForcesRes[cf].fvelres.z = v.z;
+			//tfloat3 a=FtoForcesRes[cf].fvelres;
+			//Log->Printf("%d> t:%f v(%f,%f,%f)",Nstep,TimeStep,a.x,a.y,a.z);
+		}
+		if (FtAngularVel[cf] != NULL) {
+			const tfloat3 v = FtAngularVel[cf]->GetValue3f(TimeStep);
+			if (v.x != FLT_MAX)FtoForcesRes[cf].fomegares.x = v.x;
+			if (v.y != FLT_MAX)FtoForcesRes[cf].fomegares.y = v.y;
+			if (v.z != FLT_MAX)FtoForcesRes[cf].fomegares.z = v.z;
+		}
+	}
+}
+
+//==============================================================================
+/// Process floating objects
+/// Procesa floating objects.
+//==============================================================================
+void JSphCpuSingle::RunFloating(double dt, bool predictor) {
+	Timersc->TmStart(TMC_SuFloating);
+	if (TimeStep >= FtPause) {//-Operator >= is used because when FtPause=0 in symplectic-predictor, code would not enter here. | Se usa >= pq si FtPause es cero en symplectic-predictor no entraria.
+		//-Initialises forces of floatings.
+		memset(FtoForces, 0, sizeof(StFtoForces) * FtCount);
+
+		//-Adds external forces (ForcePoints, Moorings, external file) to FtoForces[].
+		if (ForcePoints != NULL || FtLinearForce != NULL) {
+			//-Loads sum of linear and angular forces from ForcePoints and Moorings.
+			if (ForcePoints)ForcePoints->GetFtForcesSum(FtoForces);
+			//-Adds the external forces.
+			if (FtLinearForce != NULL) {
+				for (unsigned cf = 0; cf < FtCount; cf++) {
+					FtoForces[cf].face = FtoForces[cf].face + GetFtExternalForceLin(cf, TimeStep);
+					FtoForces[cf].fomegaace = FtoForces[cf].fomegaace + GetFtExternalForceAng(cf, TimeStep);
+				}
+			}
+		}
+
+		//-Computes final acceleration from particles and from external forces in FtoForces[].
+		FtCalcForces(FtoForces);
+
+		//-Calculate data to update floatings. | Calcula datos para actualizar floatings.
+		FtCalcForcesRes(dt, FtoForces, FtoForcesRes);
+		//-Applies imposed velocity.
+		if (FtLinearVel != NULL)FtApplyImposedVel(FtoForcesRes);
+		//-Applies motion constraints.
+		if (FtConstraints)FtApplyConstraints(FtoForces, FtoForcesRes);
+
+		//-Saves face and fomegace for debug.
+		if (SaveFtAce)SaveFtAceFun(dt, predictor, FtoForces);
+
+		//-Run floating with Chrono library.
+		if (ChronoObjects) {
+			Timersc->TmStop(TMC_SuFloating);
+			Timersc->TmStart(TMC_SuChrono);
+			//-Export data / Exporta datos.
+			for (unsigned cf = 0; cf < FtCount; cf++)if (FtObjs[cf].usechrono) {
+				ChronoObjects->SetFtData(FtObjs[cf].mkbound, FtoForces[cf].face, FtoForces[cf].fomegaace);
+			}
+			//-Applies the external velocities to each floating body of Chrono.
+			if (FtLinearVel != NULL)ChronoFtApplyImposedVel();
+			//-Calculate data using Chrono / Calcula datos usando Chrono.
+			ChronoObjects->RunChrono(Nstep, TimeStep, dt, predictor);
+			//-Load calculated data by Chrono / Carga datos calculados por Chrono.
+			for (unsigned cf = 0; cf < FtCount; cf++)if (FtObjs[cf].usechrono)ChronoObjects->GetFtData(FtObjs[cf].mkbound, FtoForcesRes[cf].fcenterres, FtoForcesRes[cf].fvelres, FtoForcesRes[cf].fomegares);
+			Timersc->TmStop(TMC_SuChrono);
+			Timersc->TmStart(TMC_SuFloating);
+		}
+
+		//-Apply movement around floating objects. | Aplica movimiento sobre floatings.
+		const int ftcount = int(FtCount);
+#ifdef OMP_USE
+#pragma omp parallel for schedule (guided)
+#endif
+		for (int cf = 0; cf < ftcount; cf++) {
+			//-Get Floating object values.
+			const StFloatingData fobj = FtObjs[cf];
+			const tfloat3 fomega = FtoForcesRes[cf].fomegares;
+			const tfloat3 fvel = FtoForcesRes[cf].fvelres;
+			const tdouble3 fcenter = FtoForcesRes[cf].fcenterres;
+			//-Updates floating particles.
+			const float fradius = fobj.radius;
+			const unsigned fpini = fobj.begin - CaseNpb;
+			const unsigned fpfin = fpini + fobj.count;
+			for (unsigned fp = fpini; fp < fpfin; fp++) {
+				const int p = FtRidp[fp];
+				if (p != UINT_MAX) {
+					tfloat4* velrhop = Velrhopc + p;
+					//-Compute and record position displacement. | Calcula y graba desplazamiento de posicion.
+					const double dx = dt * double(velrhop->x);
+					const double dy = dt * double(velrhop->y);
+					const double dz = dt * double(velrhop->z);
+					UpdatePos(Posc[p], dx, dy, dz, false, p, Posc, Dcellc, Codec);
+					//-Compute and record new velocity. | Calcula y graba nueva velocidad.
+					tfloat3 dist = (PeriActive ? FtPeriodicDist(Posc[p], fcenter, fradius) : ToTFloat3(Posc[p] - fcenter));
+					velrhop->x = fvel.x + (fomega.y * dist.z - fomega.z * dist.y);
+					velrhop->y = fvel.y + (fomega.z * dist.x - fomega.x * dist.z);
+					velrhop->z = fvel.z + (fomega.x * dist.y - fomega.y * dist.x);
+				}
+			}
+
+			//-Stores floating data.
+			if (!predictor) {
+				FtObjs[cf].center = (PeriActive ? UpdatePeriodicPos(fcenter) : fcenter);
+				FtObjs[cf].angles = ToTFloat3(ToTDouble3(FtObjs[cf].angles) + ToTDouble3(fomega) * dt);
+				FtObjs[cf].facelin = (fvel - FtObjs[cf].fvel) / float(dt);
+				FtObjs[cf].faceang = (fomega - FtObjs[cf].fomega) / float(dt);
+				FtObjs[cf].fvel = fvel;
+				FtObjs[cf].fomega = fomega;
+				//-Updates floating normals for mDBC.
+				if (UseNormalsFt) {
+					const tdouble3 dang = ToTDouble3(FtObjs[cf].angles - fobj.angles) * TODEG;
+					const tdouble3 cen = FtObjs[cf].center;
+					JMatrix4d mat;
+					mat.Move(cen);
+					mat.Rotate(dang);
+					mat.Move(fobj.center * -1);
+					for (unsigned fp = fpini; fp < fpfin; fp++) {
+						const int p = FtRidp[fp];
+						if (p != UINT_MAX)BoundNormalc[p] = ToTFloat3(mat.MulNormal(ToTDouble3(BoundNormalc[p])));
+					}
+				}
+				//<vs_ftmottionsv_ini>
+				if (FtMotSave && FtMotSave->CheckTime(TimeStep + dt))
+					FtMotSave->SaveFtDataCpu(TimeStep + dt, Nstep + 1, FtObjs, Np, Posc, FtRidp);
+				//<vs_ftmottionsv_end>
+			}
+		}
+	}
+	Timersc->TmStop(TMC_SuFloating);
+	//-Update data of points in FtForces and calculates motion data of affected floatings.
+	if (!predictor && ForcePoints) {
+		Timersc->TmStart(TMC_SuMoorings);
+		ForcePoints->UpdatePoints(TimeStep, dt, FtObjs);
+		if (Moorings)Moorings->ComputeForces(Nstep, TimeStep, dt, ForcePoints);
+		ForcePoints->ComputeForcesSum();
+		Timersc->TmStop(TMC_SuMoorings);
+	}
+}
+
+//==============================================================================
+/// Runs calculations in configured gauges.
+/// Ejecuta calculos en las posiciones de medida configuradas.
+//==============================================================================
+void JSphCpuSingle::RunGaugeSystem(double timestep, bool saveinput) {
+	if (!Nstep || GaugeSystem->GetCount()) {
+		Timersc->TmStart(TMC_SuGauges);
+		//const bool svpart=(TimeStep>=TimePartNext);
+		GaugeSystem->CalculeCpu(timestep, DivData, NpbOk, Npb, Np
+			, Posc, Codec, Idpc, Velrhopc, saveinput);
+		Timersc->TmStop(TMC_SuGauges);
+	}
+}
+
+//==============================================================================
+/// Compute PIPS information of current particles.
+/// Calcula datos de PIPS de particulas actuales.
+//==============================================================================
+void JSphCpuSingle::ComputePips(bool run) {
+	if (run || DsPips->CheckRun(Nstep)) {
+		TimerSim.Stop();
+		const double timesim = TimerSim.GetElapsedTimeD() / 1000.;
+		DsPips->ComputeCpu(Nstep, TimeStep, timesim, CSP, OmpThreads, Np, Npb, NpbOk
+			, DivData, Dcellc, Posc);
+	}
+}
+
+//==============================================================================
+/// Initialises execution of simulation.
+/// Inicia ejecucion de simulacion.
+//==============================================================================
+//STEP 0: Starts here
+void JSphCpuSingle::Run(std::string appname, const JSphCfgRun* cfg, JLog2* log) {
+	if (!cfg || !log)return;
+	AppName = appname; Log = log; CfgRun = cfg;
+
+	//-Configure timers.
+	//-------------------
+	Timersc->Config(cfg->SvTimers);
+	Timersc->TmStart(TMC_Init);
+	//-Load parameters and values of input. | Carga de parametros y datos de entrada.
+	//--------------------------------------------------------------------------------
+	LoadConfig(cfg);
+	LoadCaseParticles();
+	VisuConfig();
+	ConfigDomain();
+	ConfigRunMode();
+	VisuParticleSummary();
+	//-Initialisation of execution variables. | Inicializacion de variables de ejecucion.
+	//------------------------------------------------------------------------------------
+	InitRunCpu();
+	RunGaugeSystem(TimeStep, true);
+	if (InOut)InOutInit(TimeStepIni);
+	if (DeformStruc) DSPreTimeInt();
+
+	FreePartsInit();
+
+	UpdateMaxValues();
+
+	PrintAllocMemory(GetAllocMemoryCpu());
+
+	SaveData();
+
+	Timersc->ResetTimes();
+	Timersc->TmStop(TMC_Init);
+	if (Log->WarningCount())Log->PrintWarningList("\n[WARNINGS]", "");
+	PartNstep = -1; Part++;
+	//-Main Loop.
+	//------------
+	bool partoutstop = false;
+	TimerSim.Start();
+	TimerPart.Start();
+	Log->Print(string("\n[Initialising simulation (") + RunCode + ")  " + fun::GetDateTime() + "]");
+	if (DsPips)ComputePips(true);
+	if (DeformStruc) PrintHeadPart(true);
+	else PrintHeadPart(false);
+
+
+	if (Simulate2D) TimeLoop_c0<true>(partoutstop);
+	else TimeLoop_c0<false>(partoutstop);
+	TimerSim.Stop(); TimerTot.Stop();
+
+	//-End of Simulation.
+	//--------------------
+	FinishRun(partoutstop);
+}
+
+//STEP 1: Time Loop
+template<bool rundefstruc, bool simulate2d, bool defsttm, TpKernel tkernel>
+void JSphCpuSingle::TimeLoop(bool& partoutstop) {
+	JTimeControl tc("30,60,300,600");//-Shows information at 0.5, 1, 5 y 10 minutes (before first PART).
+	while (TimeStep < TimeMax) {
+
+		InterStep = (TStep == STEP_Symplectic ? INTERSTEP_SymPredictor : INTERSTEP_Verlet);
+		if (ViscoTime)Visco = ViscoTime->GetVisco(float(TimeStep));
+		if (DDTRamp.x)RunInitialDDTRamp(); //<vs_ddramp>
+
+		double stepdt = ComputeStep<rundefstruc, simulate2d, defsttm, tkernel>();
+
+		RunGaugeSystem(TimeStep + stepdt);
+		if (CaseNmoving)RunMotion(stepdt);
+		if (InOut)InOutComputeStep(stepdt);
+		else RunCellDivide(true);
+
+		TimeStep += stepdt;
+		LastDt = stepdt;
+		partoutstop = (Np < NpMinimum || !Np);
+		if (TimeStep >= TimePartNext || partoutstop) {
+			if (partoutstop) {
+				Log->PrintWarning("Particles OUT limit reached...");
+				TimeMax = TimeStep;
+			}
+
+			SaveData();
+
+			Part++;
+			PartNstep = Nstep;
+			TimeStepM1 = TimeStep;
+			TimePartNext = (SvAllSteps ? TimeStep : OutputTime->GetNextTime(TimeStep));
+			TimerPart.Start();
+		}
+
+		UpdateMaxValues();
+		Nstep++;
+		const bool laststep = (TimeStep >= TimeMax || (NstepsBreak && Nstep >= NstepsBreak));
+		if (DsPips)ComputePips(laststep);
+		if (Part <= PartIni + 1 && tc.CheckTime())Log->Print(string("  ") + tc.GetInfoFinish((TimeStep - TimeStepIni) / (TimeMax - TimeStepIni)));
+		if (NstepsBreak && Nstep >= NstepsBreak)break; //-For debugging.
+	}
+}
+
+template<bool simulate2d> void JSphCpuSingle::TimeLoop_c0(bool& partoutstop) {
+	if (DeformStruc && DeformStruc->UseUsrTimeStep) TimeLoop_c1<simulate2d, true>(partoutstop);
+	else TimeLoop_c1<simulate2d, false>(partoutstop);
+}
+
+template<bool simulate2d, bool defsttm> void JSphCpuSingle::TimeLoop_c1(bool& partoutstop) {
+	if (TKernel == KERNEL_Cubic) TimeLoop_c2<simulate2d, defsttm, KERNEL_Cubic>(partoutstop);
+	else TimeLoop_c2<simulate2d, defsttm, KERNEL_Wendland>(partoutstop);
+}
+
+template<bool simulate2d, bool defsttm, TpKernel tkernel> void JSphCpuSingle::TimeLoop_c2(bool& partoutstop) {
+	if (DeformStruc) TimeLoop<true, simulate2d, defsttm, tkernel>(partoutstop);
+	else TimeLoop<false, simulate2d, defsttm, tkernel>(partoutstop);
+}
+
+//==============================================================================
+/// Generates files with output data.
+/// Genera los ficheros de salida de datos.
+//==============================================================================
+void JSphCpuSingle::SaveData() {
+	const bool save = (SvData != SDAT_None && SvData != SDAT_Info);
+	const unsigned npsave = Np - NpbPer - NpfPer; //-Subtracts the periodic particles if they exist. | Resta las periodicas si las hubiera.
+	Timersc->TmStart(TMC_SuSavePart);
+	//-Collect particle values in original order. | Recupera datos de particulas en orden original.
+	unsigned* idp = NULL;
+	tdouble3* pos = NULL;
+	tfloat3* vel = NULL;
+	float* rhop = NULL;
+	if (save) {
+		//-Assign memory and collect particle values. | Asigna memoria y recupera datos de las particulas.
+		idp = ArraysCpu->ReserveUint();
+		pos = ArraysCpu->ReserveDouble3();
+		vel = ArraysCpu->ReserveFloat3();
+		rhop = ArraysCpu->ReserveFloat();
+
+		unsigned npnormal = GetParticlesData(Np, 0, PeriActive != 0, idp, pos, vel, rhop, NULL);
+
+		if (npnormal != npsave)Run_Exceptioon("The number of particles is invalid.");
+	}
+
+	//-Gather additional information. | Reune informacion adicional.
+	StInfoPartPlus infoplus;
+	memset(&infoplus, 0, sizeof(StInfoPartPlus));
+
+	if (SvData & SDAT_Info) {
+		infoplus.nct = CellDivSingle->GetNct();
+		infoplus.npbin = NpbOk;
+		infoplus.npbout = Npb - NpbOk;
+		infoplus.npf = Np - Npb;
+		infoplus.npbper = NpbPer;
+		infoplus.npfper = NpfPer;
+		infoplus.newnp = (InOut ? InOut->GetNewNpPart() : 0);
+		infoplus.memorycpualloc = this->GetAllocMemoryCpu();
+		infoplus.gpudata = false;
+		TimerSim.Stop();
+		infoplus.timesim = TimerSim.GetElapsedTimeD() / 1000.;
+		infoplus.defstruc = false;
+		if (DeformStruc) {
+			infoplus.defstruc = true;
+			infoplus.npdefstruc = MapNdeformstruc;
+		}
+	}
+	//-Obtains current domain limits.
+
+	const tdouble3 vdom[2] = { CellDivSingle->GetDomainLimits(true),CellDivSingle->GetDomainLimits(false) };
+	//-Stores particle data. | Graba datos de particulas.
+	JDataArrays arrays;
+	JDataArrays dsarrays;
+
+	AddBasicArrays(arrays, npsave, pos, idp, vel, rhop);
+	if (DeformStruc) {
+
+		AddBasicArraysDS(dsarrays, MapNdeformstruc, DSPos0, DSDisp, DSPhi, (DSPlastic ? DSEqPlastic : nullptr), (DSPlastic ? DSPlasticStrain : nullptr), DSParent, DSCode, DSiBodyRidp,
+			DSDefGrad, DSPiolKir, DSVel, DSPairN, DSPairStart, DSPairJ, DSNumPairs, DSKerDerV0, DSFlForce,
+			DSNMeasPlanes, DSMeasPlnCnt, DSNPartMeasPlanes, DSMeasPlnPart, DSKerSumVol);
+
+		EnsureDsDerivedArrays(dsarrays, DefStrucIntData, MapNdeformstruc);
+
+	}
+
+	JSph::SaveData(npsave, arrays, dsarrays, 1, vdom, &infoplus, DefStrucIntData, false, DSNMeasPlanes, DSNPartMeasPlanes);
+
+	ArraysCpu->Free(idp);
+	ArraysCpu->Free(pos);
+	ArraysCpu->Free(vel);
+	ArraysCpu->Free(rhop);
+
+	if (UseNormals && SvNormals)SaveVtkNormals("normals/Normals.vtk", Part, npsave, Npb, Posc, Idpc, BoundNormalc, 1.f);
+	//-Save extra data.
+	if (SvExtraDataBi4)SaveExtraData();
+	Timersc->TmStop(TMC_SuSavePart);
+}
+
+//==============================================================================
+/// Displays and stores final summary of the execution.
+/// Muestra y graba resumen final de ejecucion.
+//==============================================================================
+void JSphCpuSingle::SaveExtraData() {
+	const bool svextra = (BoundNormalc != NULL);
+	if (svextra && SvExtraDataBi4->CheckSave(Part)) {
+		SvExtraDataBi4->InitPartData(Part, TimeStep, Nstep);
+		//-Saves normals of mDBC.
+		if (BoundNormalc) {
+			SvExtraDataBi4->AddNormals(UseNormalsFt, Np, Npb, Idpc, (PeriActive ? Codec : NULL), BoundNormalc);
+		}
+		//-Saves file.
+		SvExtraDataBi4->SavePartData();
+	}
+}
+
+//==============================================================================
+/// Displays and stores final summary of the execution.
+/// Muestra y graba resumen final de ejecucion.
+//==============================================================================
+void JSphCpuSingle::FinishRun(bool stop) {
+	float tsim = TimerSim.GetElapsedTimeF() / 1000.f, ttot = TimerTot.GetElapsedTimeF() / 1000.f;
+	JSph::ShowResume(stop, tsim, ttot, true, "");
+	Log->Print(" ");
+	string hinfo, dinfo;
+	if (SvTimers) {
+		Timersc->ShowTimes("[CPU Timers]", Log);
+		Timersc->GetTimersInfo(hinfo, dinfo);
+	}
+	if (SvRes)SaveRes(tsim, ttot, hinfo, dinfo);
+	Log->PrintFilesList();
+	Log->PrintWarningList();
+	VisuRefs();
+}
+
+//========================================================================================
+/// Checks if any normals are defined for the deformable structure particles.
+//========================================================================================
+bool JSphCpuSingle::DSHasNormals(unsigned npb, const typecode* code, const tfloat3* boundnormals)const {
+	std::vector<unsigned> idx(npb);
+	std::iota(idx.begin(), idx.end(), 0);
+	return std::any_of(idx.begin(), idx.end(), [code, boundnormals](unsigned i) {return CODE_IsDeformStrucDeform(code[i]) && (boundnormals[i].x != 0 || boundnormals[i].y != 0 || boundnormals[i].z != 0); });
+}
+
+//========================================================================================
+/// Counts the number of original deformable structure particles
+//========================================================================================
+unsigned JSphCpuSingle::DSCountOrgParticles(unsigned npb, const typecode* code)const {
+	return(unsigned(
+		std::count_if(code, code + npb, [](const typecode c) {return CODE_IsDeformStrucAny(c); })));
+}
+
+//========================================================================================
+/// Calculates indices to the main arrays for the deformable structure particles.
+//========================================================================================
+void JSphCpuSingle::DSCalcRidp(unsigned npb, unsigned* defstrucridp, const typecode* code)const {
+	std::vector<unsigned> idx(npb);
+	std::iota(idx.begin(), idx.end(), 0);
+	std::copy_if(idx.begin(), idx.end(), defstrucridp, [code](unsigned i) {return CODE_IsDeformStrucAny(code[i]); });
+}
+
+//========================================================================================
+/// Counts the number of deformable structure particles in the mapped domain 
+/// This is the domain for structural solution
+/// Total mapped particles = dxmfact^3 * Casendefbody for 3D
+/// Total mapped particles = dxmfact^2 * Casendefbody for 2D
+//========================================================================================
+unsigned JSphCpuSingle::DSCountMappedParticles(StDeformStrucData* deformstrucdata) const {
+	unsigned total = 0;
+	//int* bodynp = (int*)std::malloc(DeformStrucCount * sizeof(int));
+	//for (int b = 0; b < DeformStrucCount; b++) bodynp[b] = 0;
+#ifdef OMP_USE
+#pragma omp parallel for schedule(static) reduction(+:total)
+#endif
+	for (int p = 0; p < int(CaseNdeformstruc); p++) {
+		const unsigned p1 = DeformStrucRidp[p];
+		const unsigned bodyid = CODE_GetIbodyDeformStruc(Codec[p1]);
+		StDeformStrucData& body = deformstrucdata[bodyid];
+		const unsigned mapfac = body.mapfact;
+
+		unsigned partial_nm = 0;
+		if (Simulate2D) {
+			partial_nm = mapfac * mapfac;
+		}
+		else {
+			partial_nm = mapfac * mapfac * mapfac;
+		}
+		//bodynp[bodyid] += partial_nm;
+		total += partial_nm;
+	}
+
+	return total;
+}
+
+//========================================================================================
+/// Generates new particle list for the mapped domain of deformable structure.
+/// Makes sure that the generated particles are in order aligned with the 
+/// id of deformable structure body.
+/// This is the domain for structural solution
+//========================================================================================
+void JSphCpuSingle::DSGenMappedParticles(StDeformStrucData* deformstrucdata) const {
+	unsigned total = 0;
+	int cnd = static_cast<int>(CaseNdeformstruc);
+#ifdef OMP_USE
+#pragma omp parallel for schedule(static) if (cnd > OMP_LIMIT_COMPUTESTEPDEFSTRUC)
+#endif
+	for (int p = 0; p < cnd; p++) {
+		const unsigned p1 = DeformStrucRidp[p];
+		const tdouble3 DSposp1 = Posc[p1];
+		const typecode DScodep1 = Codec[p1];
+		unsigned bodyid = CODE_GetIbodyDeformStruc(DScodep1);
+		StDeformStrucData& body = deformstrucdata[bodyid];
+		const unsigned mapfac = body.mapfact;
+		const double partDist = body.dp;
+
+		DSPosOrg0[p] = DSposp1;
+		tdouble3 posp;
+		const double xshift = DSposp1.x - 0.5 * mapfac * partDist + 0.5 * partDist;
+		const double yshift = DSposp1.y - 0.5 * mapfac * partDist + 0.5 * partDist;
+		const double zshift = DSposp1.z - 0.5 * mapfac * partDist + 0.5 * partDist;
+
+		if (Simulate2D) {
+			posp.y = DSposp1.y;
+
+			for (unsigned k = 0; k < mapfac; k++) {
+				for (unsigned m = 0; m < mapfac; m++) {
+					posp.x = xshift + partDist * m;
+					posp.z = zshift + partDist * k;
+#ifdef OMP_USE
+#pragma omp critical
+#endif
+					{
+						DSPos0[total] = posp;
+						DSParent[total] = p1;
+						DSCode[total] = DScodep1;
+						body.npbody++;
+						total++;
+						if (posp.x < body.min.x) body.min.x = posp.x;
+						if (posp.z < body.min.z) body.min.z = posp.z;
+						if (posp.y < body.min.y) body.min.y = posp.y;
+
+						if (posp.x > body.max.x) body.max.x = posp.x;
+						if (posp.z > body.max.z) body.max.z = posp.z;
+						if (posp.y > body.max.y) body.max.y = posp.y;
+					}
+				}
+			}
+		}
+		else {
+			for (unsigned k = 0; k < mapfac; k++) {
+				for (unsigned l = 0; l < mapfac; l++) {
+					for (unsigned m = 0; m < mapfac; m++) {
+						posp.x = xshift + partDist * m;
+						posp.z = zshift + partDist * k;
+						posp.y = yshift + partDist * l;
+#ifdef OMP_USE
+#pragma omp critical
+#endif
+						{
+							DSPos0[total] = posp;
+							DSParent[total] = p1;
+							DSCode[total] = DScodep1;
+							body.npbody++;
+							total++;
+							if (posp.x < body.min.x) body.min.x = posp.x;
+							if (posp.z < body.min.z) body.min.z = posp.z;
+							if (posp.y < body.min.y) body.min.y = posp.y;
+
+							if (posp.x > body.max.x) body.max.x = posp.x;
+							if (posp.z > body.max.z) body.max.z = posp.z;
+							if (posp.y > body.max.y) body.max.y = posp.y;
+						}
+					}
+				}
+			}
+		}
+
+	}
+	Log->Print(fun::PrintStr("  Number of particles generated for mapped domains:"));
+	for (unsigned bodyid = 0; bodyid < DeformStrucCount; bodyid++) {
+		StDeformStrucData& body = deformstrucdata[bodyid];
+		body.min -= body.dp * 0.5;
+		body.max += body.dp * 0.5;
+		body.mass = body.vol0 * body.rho0 * body.npbody;
+		Log->Print(fun::PrintStr("    Deformable Structure %u (mkbound %u): %u", bodyid, body.mkbound, body.npbody));
+	}
+	Log->Print(fun::PrintStr("  Total mass of deformable bodies:"));
+	for (unsigned bodyid = 0; bodyid < DeformStrucCount; bodyid++) {
+		StDeformStrucData& body = deformstrucdata[bodyid];
+		Log->Print(fun::PrintStr("    Deformable Structure %u (mkbound %u): %u", bodyid, body.mkbound, body.mass));
+	}
+}
+
+//========================================================================================
+/// Performs Cell division for Deformable solid domain 
+//========================================================================================
+void JSphCpuSingle::DSPerformCellDiv(StDeformStrucData* deformstrucdata) {
+	//Log->Print(std::string("  Applying initial deformable solid cell division..."));
+	DScellsize = 0;
+	tdouble3 dommin = deformstrucdata[0].min;
+	tdouble3 dommax = deformstrucdata[0].max;
+	for (unsigned bodyid = 0; bodyid < DeformStrucCount; bodyid++) {
+		StDeformStrucData& body = deformstrucdata[bodyid];
+		const float ksize = body.kernelsize;
+		if (ksize > DScellsize) DScellsize = ksize;
+		if (body.min.x < dommin.x) dommin.x = body.min.x;
+		if (body.min.y < dommin.y) dommin.y = body.min.y;
+		if (body.min.z < dommin.z) dommin.z = body.min.z;
+
+		if (body.max.x > dommax.x) dommax.x = body.max.x;
+		if (body.max.y > dommax.y) dommax.y = body.max.y;
+		if (body.max.z > dommax.z) dommax.z = body.max.z;
+	}
+	DScellsize = DScellsize / ScellDiv;
+	DSMap_PosMax = dommax + DScellsize;
+	DSMap_PosMin = dommin - DScellsize;
+
+	DSMap_Size = DSMap_PosMax - DSMap_PosMin;
+
+	DSMap_Cells = TUint3(unsigned(ceil(DSMap_Size.x / DScellsize)),
+		unsigned(ceil(DSMap_Size.y / DScellsize)),
+		unsigned(ceil(DSMap_Size.z / DScellsize)));
+
+	DSSelecDomain(TUint3(0, 0, 0), DSMap_Cells);
+
+	DSLoadDcellParticles(MapNdeformstruc, DSCode, DSPos0, DSDisp, DSDcellc);
+	DSCellDivSingle = new JCellDivCpuSingle(Stable, false, false, CellDomFixed, CellMode
+		, DScellsize, DSMap_PosMin, DSMap_PosMax, DSMap_Cells, 0, 0, 0, DirOut);
+	DSCellDivSingle->DefineDomain(DSDomCellCode, DSDomCelIni, DSDomCelFin, DSDomPosMin, DSDomPosMax);
+	DSConfigCellDiv((JCellDivCpu*)DSCellDivSingle);
+	DSSaveMapCellsVtk();
+	DSRunCellDivide();
+	//-Sorts particle data. | Ordena datos de particulas.
+	Timersc->TmStart(TMC_NlSortData);
+	DSCellDivSingle->SortArray(DSDcellc);
+	DSCellDivSingle->SortArray(DSPos0);
+	DSCellDivSingle->SortArray(DSCode);
+	DSCellDivSingle->SortArray(DSParent);
+	MapNdeformstruc = DSCellDivSingle->GetNpFinal();
+	Log->Print(std::string("  Cell division done for ") + fun::IntStr(MapNdeformstruc) + std::string("  mapped particles."));
+
+
+	Timersc->TmStop(TMC_NlSortData);
+}
+
+//========================================================================================
+/// Calculates indices to the main arrays for the deformable structure particles.
+//========================================================================================
+void JSphCpuSingle::DSCalcIbodyRidp(StDeformStrucData* deformstrucdata)const {
+
+	deformstrucdata[0].npstart = 0;
+	for (unsigned bodyid = 0; bodyid < DeformStrucCount; bodyid++) {
+
+		if (bodyid > 0) deformstrucdata[bodyid].npstart = deformstrucdata[bodyid - 1].npstart + deformstrucdata[bodyid - 1].npbody;
+		unsigned np = 0;
+		unsigned npstart = deformstrucdata[bodyid].npstart;
+		for (int p1 = 0; p1 < MapNdeformstruc; p1++) {
+			unsigned bd = CODE_GetIbodyDeformStruc(DSCode[p1]);
+			if (bd != bodyid) continue;
+			DSiBodyRidp[npstart + np] = p1;
+			np++;
+		}
+	}
+}
+
+//========================================================================================
+/// Determine the mapped particles closest to the original particle
+//========================================================================================
+void JSphCpuSingle::DSDetermineMapCenters(StDeformStrucData* deformstrucdata) const
+{
+	int nporgint = static_cast<int>(CaseNdeformstruc);
+#ifdef OMP_USE
+#pragma omp parallel for if (nporgint > OMP_LIMIT_COMPUTESTEPDEFSTRUC)
+#endif
+	for (int pds = 0; pds < nporgint; pds++) {
+		const unsigned npid = DeformStrucRidp[pds];
+		const tdouble3 posds = Posc[npid];
+		const unsigned bodyid = CODE_GetIbodyDeformStruc(Codec[npid]);
+		const double dp05 = 0.501 * deformstrucdata[bodyid].dp;
+		const double dp01 = 0.1 * dp05;
+
+		const StNgSearch ngs = nsearch::InitDefSolid(posds, &DSDivData);
+
+		for (int z = ngs.zini; z < ngs.zfin; z++)for (int y = ngs.yini; y < ngs.yfin; y++) {
+			const tuint2 pif = nsearch::DSParticleRange(y, z, &ngs, &DSDivData);
+
+			for (unsigned p1 = pif.x; p1 < pif.y; p1++) {
+				const unsigned bodypid = CODE_GetIbodyDeformStruc(DSCode[p1]);
+				if (bodypid != bodyid) continue;
+
+				const tdouble3 posp1 = DSPos0[p1];
+				const tdouble3 dist = posp1 - posds;
+
+				if (dist.x < -dp01 || dist.z < -dp01 || dist.y < -dp01) continue;
+
+				if (dist.x < dp05 && dist.z < dp05 && dist.y < dp05) {
+					if ((dist.x < dp01) &&
+						(dist.z < dp01) &&
+						(dist.y < dp01)) { //This is neccesary for parallele threads to enter one at a time
+						DSBestChild[pds] = static_cast<unsigned>(p1);
+					}
+					else {
+						DSBestChild[pds] = static_cast<unsigned>(p1);
+					}
+				}
+			}
+
+		}
+	}
+}
+
+//========================================================================================
+/// Generates list of particles located at the surface of bodies
+//========================================================================================
+void JSphCpuSingle::DSFindSurfParticles() {
+
+	unsigned* issurf = new unsigned[MapNdeformstruc];
+	//Dummy count
+	int dsnsurf = 0;
+#ifdef OMP_USE
+#pragma omp parallel for schedule (static) reduction(+:dsnsurf) if(MapNdeformstruc>OMP_LIMIT_COMPUTESTEPDEFSTRUC)
+#endif
+	for (int p1 = 0; p1 < MapNdeformstruc; p1++) {
+		unsigned addp1 = DSPairStart[p1];
+		const tdouble3 pos0p1 = DSPos0[p1];
+		tdouble3 norm = { 0.0,0.0,0.0 };
+		for (unsigned i = 0; i < DSPairN[p1]; ++i) {
+			const unsigned jadd = addp1 + i;
+			const unsigned p2 = DSPairJ[jadd];
+			const tdouble3 dx = DSPos0[p2] - pos0p1;
+			const double len = std::sqrt(fmath::DotVec3(dx, dx));
+			if (len > double(ALMOSTZERO)) norm += DSKer[jadd] * dx / len;
+		}
+
+		double NormMag = std::sqrt(fmath::DotVec3(norm, norm));
+		dsnsurf += NormMag > 0.25;
+	}
+	DSNpSurf = dsnsurf;
+	DSSurfPartList = new unsigned[DSNpSurf];			MemCpuFixed += (sizeof(unsigned) * DSNpSurf);
+
+#ifdef OMP_USE
+#pragma omp parallel for schedule (static) if(MapNdeformstruc>OMP_LIMIT_COMPUTESTEPDEFSTRUC)
+#endif
+	for (int p1 = 0; p1 < MapNdeformstruc; p1++) {
+		unsigned addp1 = DSPairStart[p1];
+		const tdouble3 pos0p1 = DSPos0[p1];
+		tdouble3 norm = { 0.0,0.0,0.0 };
+		for (unsigned i = 0; i < DSPairN[p1]; ++i) {
+			const unsigned jadd = addp1 + i;
+			const unsigned p2 = DSPairJ[jadd];
+			const tdouble3 dx = DSPos0[p2] - pos0p1;
+			const double len = sqrt(fmath::DotVec3(dx, dx));
+			if (len > double(ALMOSTZERO)) norm += DSKer[jadd] * dx / len;
+		}
+
+		double NormMag = sqrt(fmath::DotVec3(norm, norm));
+		issurf[p1] = NormMag > 0.25;
+	}
+
+	unsigned dummycountnt2 = 0;
+	for (int p1 = 0; p1 < MapNdeformstruc; p1++) {
+		if (issurf[p1]) {
+			DSSurfPartList[dummycountnt2] = p1;
+			dummycountnt2++;
+		}
+	}
+
+	delete[] issurf;	issurf = nullptr;
+	if (dummycountnt2 != DSNpSurf) Run_Exceptioon("Surface particles for deformable structure were set wrongly.");
+	DSDcellSurfc = new unsigned[DSNpSurf]();			MemCpuFixed += (sizeof(unsigned) * DSNpSurf);
+}
+
+//========================================================================================
+/// Identifies the nearby codes for boundary conditions and sets the boundary condition
+///	of the deformable structure particles according to it
+//========================================================================================
+void JSphCpuSingle::DSSetBoundCond(StDeformStrucData* deformstrucdata) const
+{
+	Log->Print(std::string("  Deformable solid boundary conditions are being set..."));
+
+	unsigned cnt = 0;
+
+
+	// Lambda functions to access position data
+	auto getPos0 = [this](unsigned i) -> tdouble3 { return DSPos0[i]; };
+	auto getPosc = [this](unsigned i) -> tdouble3 { return Posc[i]; };
+
+	defstrucbc::SetBoundaryConditions(Simulate2D, DeformStrucCount, deformstrucdata, MapNdeformstruc, Npb, DSNpSurf, DSCode, Codec,
+		DSKerSumVol, DSSurfPartList, DSPartFBC, DSPartVBC, getPos0, getPosc, Dp, cnt, UserExpressions);
+	Log->Print(std::string("  Deformable structure boundary conditions set for ") + fun::IntStr(cnt) + std::string(" particles"));
+
+	// Process phi boundary conditions using compact 8-byte structure
+	if (DSPartPhiBC) {
+		std::vector<tphibc> dspartphibc_compact(MapNdeformstruc, make_tphibc0());
+		unsigned phibc_cnt = 0;
+		for (unsigned bodyid = 0; bodyid < DeformStrucCount; bodyid++) {
+			StDeformStrucData& body = deformstrucdata[bodyid];
+			if (!body.fracture || body.nphibc == 0) continue;
+
+			for (int p1 = 0; p1 < MapNdeformstruc; p1++) {
+				unsigned bd = CODE_GetIbodyDeformStruc(DSCode[p1]);
+				if (bd != bodyid) continue;
+
+				for (unsigned k = 0; k < body.nphibc; k++) {
+					const tbcstrucbody& bc = body.bcphi[k];
+
+					tphibc& phibc = dspartphibc_compact[p1];
+					phibc.exprid = DSBC_GET_PHI_EXPRID(bc.flags);
+					phibc.flags = 1;
+					phibc_cnt++;
+					break;
+				}
+			}
+		}
+
+		memcpy(DSPartPhiBC, dspartphibc_compact.data(), sizeof(tphibc) * MapNdeformstruc);
+
+		if (phibc_cnt > 0)
+			Log->Print(std::string("  Phi boundary conditions set for ") + fun::IntStr(phibc_cnt) + std::string(" particles"));
+	}
+}
+
+//========================================================================================
+/// Initializes field variables for deformable structures
+//========================================================================================
+void JSphCpuSingle::DSInitFieldVars(StDeformStrucData* deformstrucdata, const double currenttime) {
+
+#ifdef OMP_USE
+#pragma omp parallel for if(MapNdeformstruc>OMP_LIMIT_COMPUTESTEPDEFSTRUC)
+#endif
+	for (int p1 = 0; p1 < MapNdeformstruc; p1++)
+	{
+		const unsigned bodyid = CODE_GetIbodyDeformStruc(DSCode[p1]);
+		StDeformStrucData body = deformstrucdata[bodyid];
+		tdouble3 pos0p1 = DSPos0[p1];
+		DSDisp[p1] = { 0.0, 0.0, 0.0 };
+		tdouble3 posp1 = pos0p1 + TDouble3(0.0, 0.0, 0.0);
+		tdouble3 initvel = TDouble3(0.0, 0.0, 0.0);
+		const tbcstruc bcvel = DSPartVBC[p1];
+		if (currenttime > bcvel.tst && currenttime < bcvel.tend) {
+			bool skip;
+			double value;
+			if (DSBC_GET_X_FLAG(bcvel.flags)) {
+				initvel.x = bcvel.x;
+			}
+			else if (DSBC_GET_X_IS_EXPR(bcvel.flags)) {
+				skip = false;
+				value = UserExpressions->GetById(DSBC_GET_X_EXPRID(bcvel.flags))->Evaluate(pos0p1, posp1, TDouble3(0.0, 0.0, 0.0), currenttime, 0.0f, body.dp, skip);
+				if (!skip) initvel.x = value;
+			}
+
+			if (DSBC_GET_Y_FLAG(bcvel.flags)) {
+				initvel.y = bcvel.y;
+			}
+			else if (DSBC_GET_Y_IS_EXPR(bcvel.flags)) {
+				skip = false;
+				value = UserExpressions->GetById(DSBC_GET_Y_EXPRID(bcvel.flags))->Evaluate(pos0p1, posp1, TDouble3(0.0, 0.0, 0.0), currenttime, 0.0f, body.dp, skip);
+				if (!skip) initvel.y = value;
+			}
+
+			if (DSBC_GET_Z_FLAG(bcvel.flags)) {
+				initvel.z = bcvel.z;
+			}
+			else if (DSBC_GET_Z_IS_EXPR(bcvel.flags)) {
+				skip = false;
+				value = UserExpressions->GetById(DSBC_GET_Z_EXPRID(bcvel.flags))->Evaluate(pos0p1, posp1, TDouble3(0.0, 0.0, 0.0), currenttime, 0.0f, body.dp, skip);
+				if (!skip) initvel.z = value;
+			}
+		}
+		// Evaluate force BC expressions at initialization time
+		tbcstruc bcforce = DSPartFBC[p1];
+		float surfacefact = 1.0f / (body.vol0 * (1.0f / DSKerSumVol[p1] - body.selfkern));
+		if (currenttime > bcforce.tst && currenttime < bcforce.tend) {
+			bool skip;
+			double value;
+			// Determine conversion factor based on force type
+			float conversionFactor = 1.0f;
+			unsigned forcetype = DSBC_GET_FORCETYPE(bcforce.flags);
+			if (forcetype == DSBC_FORCETYPE_POINT) {
+				conversionFactor = 1.0f / body.particlemass;
+			}
+			else if (forcetype == DSBC_FORCETYPE_SURFACE) {
+				conversionFactor = float(body.dp / (body.vol0 * body.rho0)) * surfacefact;
+			}
+			//else if (forcetype == DSBC_FORCETYPE_BODY) {
+			//	conversionFactor = 1.0f / body.rho0;
+			//}
+
+			if (DSBC_GET_X_IS_EXPR(bcforce.flags)) {
+				skip = false;
+				value = UserExpressions->GetById(DSBC_GET_X_EXPRID(bcforce.flags))->Evaluate(pos0p1, posp1, TDouble3(0.0, 0.0, 0.0), currenttime, 0.0f, body.dp, skip);
+				if (!skip) bcforce.x = static_cast<float>(value * conversionFactor);
+			}
+
+			if (DSBC_GET_Y_IS_EXPR(bcforce.flags)) {
+				skip = false;
+				value = UserExpressions->GetById(DSBC_GET_Y_EXPRID(bcforce.flags))->Evaluate(pos0p1, posp1, TDouble3(0.0, 0.0, 0.0), currenttime, 0.0f, body.dp, skip);
+				if (!skip) bcforce.y = static_cast<float>(value * conversionFactor);
+			}
+
+			if (DSBC_GET_Z_IS_EXPR(bcforce.flags)) {
+				skip = false;
+				value = UserExpressions->GetById(DSBC_GET_Z_EXPRID(bcforce.flags))->Evaluate(pos0p1, posp1, TDouble3(0.0, 0.0, 0.0), currenttime, 0.0f, body.dp, skip);
+				if (!skip) bcforce.z = static_cast<float>(value * conversionFactor);
+			}
+		}
+		DSPartFBC[p1] = bcforce;
+		DSAccl[p1] = TDouble3(bcforce.x + Gravity.x, bcforce.y + Gravity.y, bcforce.z + Gravity.z);
+		DSFlForce[p1] = { 0.0,0.0,0.0 };
+		if (DSEqPlastic) DSEqPlastic[p1] = 0.0;
+		if (DSPlasticStrain) DSPlasticStrain[p1] = DSIdentc;  // Initialize plastic metric to identity
+		if (DSPlasticFp) DSPlasticFp[p1] = DSIdentc;  // Initialize plastic metric to identity
+		DSDefGrad[p1] = DSIdentc;
+		DSJacob[p1] = 1.0;
+		if (TStep == STEP_Symplectic) DSVelPre[p1] = initvel;
+		DSVel[p1] = initvel;
+	}
+
+}
+
+//========================================================================================
+/// Find the maximum allowble time step accros all the bodies
+//========================================================================================
+void JSphCpuSingle::DSCalcMaxInitTimeStep(StDeformStrucData* deformstrucdata) {
+
+	DSMaxDt = DBL_MAX;
+
+#ifdef OMP_USE
+#pragma omp parallel  if(MapNdeformstruc>OMP_LIMIT_COMPUTESTEPDEFSTRUC)
+#endif
+	{
+		double local_max_dt = DBL_MAX;
+#ifdef OMP_USE
+#pragma omp for schedule (static)
+#endif
+		for (int p1 = 0; p1 < MapNdeformstruc; p1++)
+		{
+			const unsigned bodyid = CODE_GetIbodyDeformStruc(DSCode[p1]);
+			StDeformStrucData& body = deformstrucdata[bodyid];
+			const float bodykh = body.kernelh;
+			const float czero = body.czero;
+
+			const unsigned numpairsp1 = DSPairN[p1];
+			const unsigned addp1 = DSPairStart[p1];
+			const tdouble3 pos0p1 = DSPos0[p1];
+			const tdouble3 posp1 = pos0p1 + DSDisp[p1];
+			const tdouble3 velp1 = DSVel[p1];
+			tdouble3 acclp1 = DSAccl[p1];
+
+			const double tol = bodykh * bodykh * 0.0001;
+
+			double vrrm = 0.0;
+			for (unsigned pair = 0; pair < numpairsp1; pair++)
+			{
+				const unsigned pairadd = addp1 + pair;
+				const unsigned p2 = DSPairJ[pairadd];
+
+				const tdouble3 posp2 = DSPos0[p2];
+				const tdouble3 velp2 = DSVel[p2];
+
+				const tdouble3 drx = posp2 - pos0p1;
+				const tdouble3 drv = velp2 - velp1;
+
+				const double drx2 = fmath::DotVec3(drx, drx) + tol;
+				const double ttterm = fmath::DotVec3(drv, drx) / drx2;
+				if (ttterm > vrrm) vrrm = ttterm;
+			}
+
+			const double dt_av = body.kernelh / (body.czero + sqrt(velp1.x * velp1.x + velp1.y * velp1.y + velp1.z * velp1.z));
+			const double famag = acclp1.x * acclp1.x + acclp1.y * acclp1.y + acclp1.z * acclp1.z;
+			double dtf = (famag > double(ALMOSTZERO)) ? sqrt(body.kernelh / sqrt(famag)) : DBL_MAX;
+
+			const double dtmin = min(dtf, dt_av);
+			if (dtmin < local_max_dt) local_max_dt = dtmin;
+		}
+#ifdef OMP_USE
+#pragma omp critical
+#endif
+		{
+			if (local_max_dt < DSMaxDt) {
+				DSMaxDt = local_max_dt;
+			}
+		}
+
+	}
+
+	for (unsigned bodyid1 = 0; bodyid1 < DeformStrucCount - 1; bodyid1++) {
+		StDeformStrucData& body1 = deformstrucdata[bodyid1];
+		for (unsigned bodyid2 = bodyid1 + 1; bodyid2 < DeformStrucCount; bodyid2++) {
+			StDeformStrucData& body2 = deformstrucdata[bodyid2];
+			double E1 = body1.youngmod;
+			double E2 = body2.youngmod;
+			double tau1 = body1.tau;
+			double tau2 = body2.tau;
+
+			double E_star = 1.0 / (tau1 + tau2);
+			double R_star = 0.25 * (body1.dp + body2.dp);
+
+			double kn = 4.0 / 3.0 * E_star * sqrt(R_star);
+			double mp = body1.rho0 * body1.vol0;
+			double mq = body2.rho0 * body2.vol0;
+			double m_eff = (mp * mq) / (mp + mq);
+
+			double delta0 = 0.1 * min(body1.dp, body2.dp);
+			double kn_lin = 1.5 * kn * sqrt(delta0);
+
+			double dt_contact = sqrt(m_eff / kn_lin);
+			DSMaxDt = min(DSMaxDt, dt_contact);
+		}
+	}
+}
+
+//========================================================================================
+/// Predictor stage for Symplectic time integration
+//========================================================================================
+void JSphCpuSingle::DSCompSympPre(const double dtm) {
+
+#ifdef OMP_USE
+#pragma omp parallel for if(MapNdeformstruc>OMP_LIMIT_COMPUTESTEP)
+#endif
+	for (int p1 = 0; p1 < MapNdeformstruc; p1++) {
+		StDeformStrucIntData body = DefStrucIntData[CODE_GetIbodyDeformStruc(DSCode[p1])];
+		tdouble3 velp1 = DSVel[p1];
+
+		DSDisp[p1] += velp1 * dtm;
+		DSVel[p1] = velp1 + DSAccl[p1] * dtm;
+		DSVelPre[p1] = velp1;
+		if (body.fracture) {
+			const double phidp1 = DSPhiDot[p1];
+			DSPhi[p1] += phidp1 * dtm;
+			DSPhiDot[p1] = phidp1 + DSPhiDDot[p1] * dtm;
+			DSPhiDotPre[p1] = phidp1;
+			if (DSPhi[p1] < body.pflim) {
+				DSPhi[p1] = 0.0;
+				DSPhiDot[p1] = 0.0;
+				DSDisp[p1] += DSCorrArray[p1];
+			}
+		}
+	}
+}
+
+//========================================================================================
+/// Corrector stage for Symplectic time integration
+//========================================================================================
+void JSphCpuSingle::DSCompSympCor(const double dtm, const double currenttime) {
+
+#ifdef OMP_USE
+#pragma omp parallel for if(MapNdeformstruc>OMP_LIMIT_COMPUTESTEP)
+#endif
+	for (int p1 = 0; p1 < MapNdeformstruc; p1++) {
+		StDeformStrucIntData body = DefStrucIntData[CODE_GetIbodyDeformStruc(DSCode[p1])];
+		const tdouble3 velprep1 = DSVelPre[p1];
+		tdouble3 acclp1 = DSAccl[p1];
+		const tbcstruc bcvel = DSPartVBC[p1];
+		const tdouble3 pos0p1 = DSPos0[p1];
+		const tdouble3 dispp1 = DSDisp[p1];
+
+		tdouble3 velp1new;
+		velp1new.x = velprep1.x + acclp1.x * dtm * 2.0f;
+		velp1new.y = velprep1.y + acclp1.y * dtm * 2.0f;
+		velp1new.z = velprep1.z + acclp1.z * dtm * 2.0f;
+
+		if (currenttime > bcvel.tst && currenttime < bcvel.tend) {
+			bool skip;
+			double value;
+			if (DSBC_GET_X_FLAG(bcvel.flags)) {
+				velp1new.x = bcvel.x; acclp1.x = 0.0;
+			}
+			else if (DSBC_GET_X_IS_EXPR(bcvel.flags)) {
+				skip = false;
+				value = UserExpressions->GetById(DSBC_GET_X_EXPRID(bcvel.flags))->Evaluate(pos0p1, pos0p1 + dispp1, dispp1, currenttime, dtm * 2.0f, body.dp, skip);
+				if (!skip) {
+					velp1new.x = value;
+					acclp1.x = 0.0;
+				}
+			}
+
+			if (DSBC_GET_Y_FLAG(bcvel.flags)) {
+				velp1new.y = bcvel.y; acclp1.y = 0.0;
+			}
+			else if (DSBC_GET_Y_IS_EXPR(bcvel.flags)) {
+				skip = false;
+				value = UserExpressions->GetById(DSBC_GET_Y_EXPRID(bcvel.flags))->Evaluate(pos0p1, pos0p1 + dispp1, dispp1, currenttime, dtm * 2.0f, body.dp, skip);
+				if (!skip) {
+					velp1new.y = value;
+					acclp1.y = 0.0;
+				}
+			}
+
+			if (DSBC_GET_Z_FLAG(bcvel.flags)) {
+				velp1new.z = bcvel.z; acclp1.z = 0.0;
+			}
+			else if (DSBC_GET_Z_IS_EXPR(bcvel.flags)) {
+				skip = false;
+				value = UserExpressions->GetById(DSBC_GET_Z_EXPRID(bcvel.flags))->Evaluate(pos0p1, pos0p1 + dispp1, dispp1, currenttime, dtm * 2.0f, body.dp, skip);
+				if (!skip) {
+					velp1new.z = value;
+					acclp1.z = 0.0;
+				}
+			}
+			DSAccl[p1] = acclp1;
+		}
+
+		DSVel[p1] = velp1new;
+		DSDisp[p1] = dispp1 + velp1new * dtm;
+
+		if (body.fracture) {
+
+			const double phidprep1 = DSPhiDotPre[p1];
+			const double phiddp1 = DSPhiDDot[p1];
+
+			const double phidp1new = phidprep1 + phiddp1 * dtm * 2.0;
+			DSPhi[p1] += phidp1new * dtm;
+			DSPhiDot[p1] = phidp1new;
+			if (DSPhi[p1] < body.pflim) {
+				DSPhi[p1] = 0.0;
+				DSPhiDot[p1] = 0.0;
+				DSDisp[p1] += DSCorrArray[p1];
+			}
+
+			// Apply phi boundary condition
+			if (DSPartPhiBC) {
+				const tphibc phibc = DSPartPhiBC[p1];
+				if (phibc.flags == 1) {
+					const tdouble3 pos0p1 = DSPos0[p1];
+					const unsigned expr_id = phibc.exprid;
+					// Evaluate expression
+					bool skip = true;
+					const double restore_value = UserExpressions->GetById(expr_id)->Evaluate(
+						pos0p1,
+						pos0p1 + DSDisp[p1],
+						DSDisp[p1], currenttime, dtm * 2.0, body.dp, skip);
+
+					if (!skip && restore_value >= 0.0 && restore_value <= 1.0 && DSPhi[p1] < restore_value) {
+						DSPhi[p1] = restore_value;
+						DSPhiDot[p1] = 0.0;
+					}
+				}
+			}
+		}
+	}
+}
+
+void JSphCpuSingle::DSCompSemImplEuler(double dt, const double currenttime) {
+
+#ifdef OMP_USE
+#pragma omp parallel for if(MapNdeformstruc>OMP_LIMIT_COMPUTESTEPDEFSTRUC)
+#endif
+	for (int p1 = 0; p1 < MapNdeformstruc; p1++)
+	{
+		const unsigned bodyid = CODE_GetIbodyDeformStruc(DSCode[p1]);
+		StDeformStrucIntData body = DefStrucIntData[bodyid];
+		tdouble3 accln = DSAccl[p1];
+		const tdouble3 velold = DSVel[p1];
+		const tdouble3 pos0p1 = DSPos0[p1];
+		const tdouble3 dispp1 = DSDisp[p1];
+
+		const tbcstruc bcvel = DSPartVBC[p1];
+		tdouble3 velp1new;
+		velp1new.x = velold.x + accln.x * dt;
+		velp1new.y = velold.y + accln.y * dt;
+		velp1new.z = velold.z + accln.z * dt;
+
+		if (currenttime > bcvel.tst && currenttime < bcvel.tend) {
+			bool skip;
+			double value;
+			if (DSBC_GET_X_FLAG(bcvel.flags)) {
+				velp1new.x = bcvel.x; accln.x = 0.0;
+			}
+			else if (DSBC_GET_X_IS_EXPR(bcvel.flags)) {
+				skip = false;
+				value = UserExpressions->GetById(DSBC_GET_X_EXPRID(bcvel.flags))->Evaluate(pos0p1, pos0p1 + dispp1, dispp1, currenttime, dt, body.dp, skip);
+				if (!skip) {
+					velp1new.x = value;
+					accln.x = 0.0;
+				}
+			}
+
+			if (DSBC_GET_Y_FLAG(bcvel.flags)) {
+				velp1new.y = bcvel.y; accln.y = 0.0;
+			}
+			else if (DSBC_GET_Y_IS_EXPR(bcvel.flags)) {
+				skip = false;
+				value = UserExpressions->GetById(DSBC_GET_Y_EXPRID(bcvel.flags))->Evaluate(pos0p1, pos0p1 + dispp1, dispp1, currenttime, dt, body.dp, skip);
+				if (!skip) {
+					velp1new.y = value;
+					accln.y = 0.0;
+				}
+			}
+
+			if (DSBC_GET_Z_FLAG(bcvel.flags)) {
+				velp1new.z = bcvel.z; accln.z = 0.0;
+			}
+			else if (DSBC_GET_Z_IS_EXPR(bcvel.flags)) {
+				skip = false;
+				value = UserExpressions->GetById(DSBC_GET_Z_EXPRID(bcvel.flags))->Evaluate(pos0p1, pos0p1 + dispp1, dispp1, currenttime, dt, body.dp, skip);
+				if (!skip) {
+					velp1new.z = value;
+					accln.z = 0.0;
+				}
+			}
+			DSAccl[p1] = accln;
+		}
+
+		DSVel[p1] = velp1new;
+		DSDisp[p1] += velp1new * dt;
+		if (body.fracture) {
+
+			const double phidnew = DSPhiDot[p1] + DSPhiDDot[p1] * dt;
+			DSPhi[p1] += phidnew * dt;
+			DSPhiDot[p1] = phidnew;
+
+			if (DSPhi[p1] < body.pflim) {
+				DSPhi[p1] = 0.0;
+				DSPhiDot[p1] = 0.0;
+				DSDisp[p1] += DSCorrArray[p1];
+
+			}
+
+			// Apply phi boundary condition
+			if (DSPartPhiBC) {
+				const tphibc phibc = DSPartPhiBC[p1];
+				if (phibc.flags == 1) {
+					const tdouble3 pos0p1 = DSPos0[p1];
+					const unsigned expr_id = phibc.exprid;
+					// Evaluate expression
+					bool skip = true;
+					const double restore_value = UserExpressions->GetById(expr_id)->Evaluate(
+						pos0p1,
+						pos0p1 + DSDisp[p1],
+						DSDisp[p1], currenttime, dt, body.dp, skip);
+
+					if (!skip && restore_value >= 0.0 && restore_value <= 1.0 && DSPhi[p1] < restore_value) {
+						DSPhi[p1] = restore_value;
+						DSPhiDot[p1] = 0.0;
+					}
+				}
+			}
+		}
+
+
+
+	}
+}
+
+//========================================================================================
+/// Performs deformable structures' calculations for 1 time step of the main solver.
+//========================================================================================
+template<bool simulate2d, bool defsttm>
+void JSphCpuSingle::DSComputeStep_Ver(const double dt)
+{
+	double subdt = 0.0;
+	while (subdt < dt) {
+		double remaining = dt - subdt;
+		if (remaining <= double(ALMOSTZERO)) break;
+		double dsdt = defsttm ? DeformStruc->UseUsrTimeStep : CFLnumber * DSMaxDt;
+		if (dsdt > remaining) dsdt = remaining;
+		if (DeformStrucCount > 1) DSInteractionForcesDEM(dsdt);
+		DSInteraction_Forces<simulate2d>(TimeStep + subdt, dsdt);
+		DSCompSemImplEuler(dsdt, TimeStep + subdt);
+		subdt += dsdt;
+		DSNstep++;
+	}
+}
+
+//========================================================================================
+/// Performs deformable structures' calculations for 1 time step of the main solver.
+//========================================================================================
+template<bool simulate2d, bool defsttm>
+void JSphCpuSingle::DSComputeStep_Sym(const double dt, double starttime) {
+	double subdt = 0.0;
+	double currenttime = starttime;
+	while (subdt < dt) {
+		const double remaining = dt - subdt;
+		if (remaining <= double(ALMOSTZERO)) break;
+
+		double dsdt = defsttm ? DeformStruc->UseUsrTimeStep : CFLnumber * DSMaxDt;
+		if (dsdt > remaining) dsdt = remaining;
+		const double dtm = dsdt * 0.5;
+
+		if (DeformStrucCount > 1) DSInteractionForcesDEM(dsdt);
+
+		DSCompSympPre(dtm);
+
+		DSInteraction_Forces<simulate2d>(currenttime, dsdt);
+
+		DSCompSympCor(dtm, currenttime);
+		subdt += dsdt;
+		currenttime += dsdt;
+		DSNstep++;
+	}
+}
+
+void JSphCpuSingle::DSInteractionForcesDEM(const double dtdem)const
+{
+
+#ifdef OMP_USE
+#pragma omp parallel for schedule (guided)
+#endif
+	for (int p1 = 0; p1 < MapNdeformstruc; p1++) {
+		tdouble3 acep1 = TDouble3(0);
+		const tdouble3 posp1 = DSPos0[p1] + DSDisp[p1];
+		const tdouble3 velp1 = DSVel[p1];
+		const unsigned bodyid1 = CODE_GetIbodyDeformStruc(DSCode[p1]);
+		StDeformStrucIntData body1 = DefStrucIntData[bodyid1];
+		const float masstotp1 = body1.mass;
+		const float taup1 = body1.tau;
+		const float kfricp1 = body1.kfric;
+		const float restitup1 = body1.restcoeff;
+		const float ftmassp1 = body1.rho0 * body1.vol0;
+		const StNgSearch ngs = nsearch::Init(posp1, true, DivData);
+		for (int z1 = ngs.zini; z1 < ngs.zfin; z1++) {
+			for (int y1 = ngs.yini; y1 < ngs.yfin; y1++) {
+				const tuint2 pif = nsearch::ParticleRange(y1, z1, ngs, DivData);
+				for (unsigned p2 = pif.x; p2 < pif.y; p2++) {
+					if (CODE_IsDeformStrucAny(Codec[p2])) {
+						const unsigned bodyid2 = CODE_GetIbodyDeformStruc(Codec[p2]);
+						if (bodyid1 != bodyid2)
+						{
+							tdouble3 posp02 = Posc[p2];
+							const tfloat4 velrhop2 = Velrhopc[p2];
+							const float drx = float(posp1.x - posp02.x);
+							const float dry = float(posp1.y - posp02.y);
+							const float drz = float(posp1.z - posp02.z);
+							const float rr2 = drx * drx + dry * dry + drz * drz;
+							const float rad = sqrt(rr2);
+
+							//-Get data of particle p2.
+							const StDeformStrucIntData body2 = DefStrucIntData[bodyid2];
+							const float masstotp2 = body2.mass;
+							const float taup2 = body2.tau;
+							const float kfricp2 = body2.kfric;
+							const float restitup2 = body2.restcoeff;
+
+							//-Calculate effective mass. | Calcula masa efectiva.
+							const float nu_mass = masstotp1 * masstotp2 / (masstotp1 + masstotp2);
+							//-Generalized rigidity - Lemieux 2008.
+							const float kn = 4.0f / (3.0f * (taup1 + taup2)) * sqrt(float(Dp) / 4.0f);
+							const float dvx = velp1.x - velrhop2.x, dvy = velp1.y - velrhop2.y, dvz = velp1.z - velrhop2.z; //vji
+							const float nx = drx / rad, ny = dry / rad, nz = drz / rad; //normal_ji             
+							const float vn = dvx * nx + dvy * ny + dvz * nz; //vji.nji
+							const float demvisc = 0.2f / (3.21f * (pow(nu_mass / kn, 0.4f) * pow(fabs(vn), -0.2f)) / 40.f);
+
+							const float over_lap = 1.0f * float(Dp) - rad; //-(ri+rj)-|dij|
+							if (over_lap > 0.0f) { //-Contact.
+								//-Normal.
+								const float eij = (restitup1 + restitup2) / 2.0f;
+								const float gn = -(2.0f * log(eij) * sqrt(nu_mass * kn)) / (sqrt(float(PI) + log(eij) * log(eij))); //-Generalized damping - Cummins 2010.
+								const float rep = kn * pow(over_lap, 1.5f);
+								const float fn = rep - gn * pow(over_lap, 0.25f) * vn;
+								float acef = fn / ftmassp1; //-Divides by the mass of particle to obtain the acceleration.
+								acep1.x += (acef * nx); acep1.y += (acef * ny); acep1.z += (acef * nz); //-Force is applied in the normal between the particles.
+								//-Tangential.
+								const float dvxt = dvx - vn * nx, dvyt = dvy - vn * ny, dvzt = dvz - vn * nz; //Vji_t
+								const float vt = sqrt(dvxt * dvxt + dvyt * dvyt + dvzt * dvzt);
+								const float tx = (vt != 0 ? dvxt / vt : 0), ty = (vt != 0 ? dvyt / vt : 0), tz = (vt != 0 ? dvzt / vt : 0); //-Tang vel unit vector.
+								const float ft_elast = 2 * (kn * float(dtdem) - gn) * vt / 7; //-Elastic frictional string -->  ft_elast=2*(kn*fdispl-gn*vt)/7; fdispl=dtforce*vt;
+								const float kfric_ij = (kfricp1 + kfricp2) / 2;
+								float ft = kfric_ij * fn * tanh(8 * vt);  //-Coulomb.
+								ft = (ft < ft_elast ? ft : ft_elast);   //-Not above yield criteria, visco-elastic model.
+								acef = ft / ftmassp1; //-Divides by the mass of particle to obtain the acceleration.
+								acep1.x += (acef * tx); acep1.y += (acef * ty); acep1.z += (acef * tz);
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if (Simulate2D) acep1.y = 0;
+		DSFlForce[p1] = acep1;
+	}
+}
+
+//========================================================================================
+/// Performs deformable structures' calculations for 1 time step of the local solver.
+//========================================================================================
+template<bool simulate2d>
+void JSphCpuSingle::DSInteraction_Forces(const double currenttime, const double dsdt) {
+
+	for (int th = 0; th < OmpThreads; th++) {
+		arrminmax[th * OMP_STRIDE] = { DBL_MAX, DBL_MAX, DBL_MAX };
+	}
+
+#ifdef OMP_USE
+#pragma omp parallel if(MapNdeformstruc>OMP_LIMIT_COMPUTESTEPDEFSTRUC)
+#endif
+	{
+
+#ifdef OMP_USE
+#pragma omp for
+#endif
+		for (int p1 = 0; p1 < MapNdeformstruc; p1++)
+		{
+			const unsigned bodyid = CODE_GetIbodyDeformStruc(DSCode[p1]);
+			StDeformStrucIntData body = DefStrucIntData[bodyid];
+			const TpConstitModel constmdl = body.constitmodel;
+
+			const double phfp1 = (body.fracture ? DSPhi[p1] : 1.0);
+			const bool healthyP1 = (phfp1 >= body.pflim);
+			const double phfp1_sq = phfp1 * phfp1;
+
+			const unsigned numpairsp1 = DSPairN[p1];
+			const unsigned addp1 = DSPairStart[p1];
+			const tdouble3 dispp1 = DSDisp[p1];
+			const tdouble3 velp1 = DSVel[p1];
+			const tdouble3 pos0p1 = DSPos0[p1];
+			const tdouble3 posp1 = pos0p1 + dispp1;
+
+			tmatrix3d defgradp1 = DSIdentc;
+			tmatrix3d PK2 = TMatrix3d(0.0);
+			tdouble3 corsum = TDouble3(0.0);
+			DSCorrArray[p1] = corsum;
+			double denom = 0.0;
+			double lapc = 0.0;
+			if (healthyP1) {
+				if (body.fracture) {
+					for (unsigned pair = 0; pair < numpairsp1; pair++)
+					{
+						const unsigned pairadd = addp1 + pair;
+						const unsigned p2 = DSPairJ[pairadd];
+						const tdouble3 dskerder = DSKerDerV0[pairadd];
+						const double phfp2 = DSPhi[p2];
+						const tdouble3 dispp2 = DSDisp[p2];
+						const tdouble3 dispdiff = dispp2 - dispp1;
+						lapc += (phfp2 - phfp1) * DSKerLapc[pairadd];
+						if (simulate2d) {
+							defgradp1.a11 += dispdiff.x * dskerder.x;
+							defgradp1.a13 += dispdiff.x * dskerder.z;
+							defgradp1.a31 += dispdiff.z * dskerder.x;
+							defgradp1.a33 += dispdiff.z * dskerder.z;
+						}
+						else {
+							defgradp1 += fmath::DyadicVec3(dispdiff, dskerder);
+						}
+					}
+				}
+				else {
+					for (unsigned pair = 0; pair < numpairsp1; pair++)
+					{
+						const unsigned pairadd = addp1 + pair;
+						const unsigned p2 = DSPairJ[pairadd];
+						const tdouble3 dispp2 = DSDisp[p2];
+						const tdouble3 dispdiff = dispp2 - dispp1;
+						const tdouble3 dskerder = DSKerDerV0[pairadd];
+						if (simulate2d) {
+							defgradp1.a11 += dispdiff.x * dskerder.x;
+							defgradp1.a13 += dispdiff.x * dskerder.z;
+							defgradp1.a31 += dispdiff.z * dskerder.x;
+							defgradp1.a33 += dispdiff.z * dskerder.z;
+						}
+						else {
+							defgradp1 += fmath::DyadicVec3(dispdiff, dskerder);
+						}
+					}
+				}
+			}
+			else {
+				for (unsigned pair = 0; pair < numpairsp1; pair++)
+				{
+					const unsigned pairadd = addp1 + pair;
+					const unsigned p2 = DSPairJ[pairadd];
+					const double phfp2 = DSPhi[p2];
+					const tdouble3 dispp2 = DSDisp[p2];
+
+					lapc += (phfp2 - phfp1) * DSKerLapc[pairadd];
+
+					double weight = DSKer[pairadd];
+					weight = phfp2 * phfp2 * weight * weight;
+					const tdouble3 dispdiff = dispp2 - dispp1;
+					if (simulate2d) {
+						corsum.x += dispdiff.x * weight;
+						corsum.z += dispdiff.z * weight;
+					}
+					else {
+						corsum += dispdiff * weight;
+					}
+					denom += weight;
+				}
+				if (denom > double(ALMOSTZERO)) {
+					if (simulate2d) DSCorrArray[p1] = TDouble3(corsum.x / denom, 0.0, corsum.z / denom);
+					else DSCorrArray[p1] = corsum / denom;
+				}
+				else {
+					DSCorrArray[p1] = TDouble3(0.0);
+				}
+			}
+			if (simulate2d) {
+				defgradp1.a12 = 0.0;
+				defgradp1.a21 = 0.0;
+				defgradp1.a22 = 1.0;
+				defgradp1.a23 = 0.0;
+				defgradp1.a32 = 0.0;
+			}
+			const double jac = simulate2d ? fmath::Determinant2x2(defgradp1) : fmath::Determinant3x3(defgradp1);
+
+			DSDefGrad[p1] = defgradp1;
+			DSJacob[p1] = jac;
+
+			if (constmdl == CONSTITMODEL_SVK) {
+				const tmatrix3d GLstrain = 0.5 * (fmath::MulMatrix3x3(fmath::TrasMatrix3x3(defgradp1), defgradp1) - DSIdentc);
+				const double trE = fmath::Trace3x3(GLstrain);
+				if (body.fracture) {
+					if (phfp1 < body.pflim) {
+						DSPhiDDot[p1] = 0.0;
+					}
+					else {
+						const tmatrix3d Glp = fmath::DSEigenDecompose<simulate2d>(GLstrain);
+
+						const tmatrix3d Sp = body.lambda * max(trE, 0.0) * DSIdentc + 2.0 * body.mu * Glp;
+						const tmatrix3d Sn = body.lambda * min(trE, 0.0) * DSIdentc + 2.0 * body.mu * (GLstrain - Glp);
+						PK2 = phfp1_sq * Sp + Sn;
+
+						const double Wp = 0.5 * body.lambda * max(trE, 0.0) * max(trE, 0.0) + body.mu * fmath::Trace3x3(fmath::MulMatrix3x3(Glp, Glp));
+						double h0 = DSHis[p1];
+						if (Wp > h0) h0 = Wp;
+
+						const double fm = 0.5 * body.czero / sqrt(4.0 * body.gc * body.lc * h0 + body.gc * body.gc);
+						const double term1 = body.gc * (2.0 * body.lc * lapc + 0.5 * (1.0 - phfp1) / body.lc) - 2.0 * phfp1 * h0 - DSPhiDot[p1] / fm;
+						DSPhiDDot[p1] = 0.5 * body.czero * body.czero * term1 / (body.gc * body.lc);
+						DSHis[p1] = h0;
+					}
+				}
+				else {
+					PK2 = body.lambda * trE * DSIdentc + 2.0 * body.mu * GLstrain;
+				}
+			}
+			else if (constmdl == CONSTITMODEL_NH) {
+				if (body.fracture) {
+					if (phfp1 < body.pflim) {
+						DSPhiDDot[p1] = 0.0;
+					}
+					else {
+						const double inv_jac = 1.0 / jac;
+						const double inv3 = 1.0 / 3.0;
+
+						const tmatrix3d b = fmath::MulMatrix3x3(fmath::TrasMatrix3x3(defgradp1), defgradp1);
+						tmatrix3d binv;
+						if (simulate2d) {
+							binv = fmath::InverseMatrix2x2(b);
+							binv.a22 = 1.0;
+						}
+						else binv = fmath::InverseMatrix3x3(b);
+
+						const double trb = fmath::Trace3x3(b);
+						const double trbb = pow(inv_jac, 2.0 * inv3) * trb;
+
+						double Wp = 0.5 * body.mu * (trbb - 3.0);
+						if (jac >= 1.0) {
+							PK2 = phfp1_sq * (0.5 * body.bulk * (jac * jac - 1.0) * binv + pow(inv_jac, 2.0 * inv3) * body.mu * (DSIdentc - inv3 * trb * binv));
+							Wp += 0.5 * body.bulk * (0.5 * (jac * jac - 1.0) - log(jac));
+						}
+						else {
+							PK2 = 0.5 * body.bulk * (jac * jac - 1.0) * binv + phfp1_sq * (pow(inv_jac, 2.0 * inv3) * body.mu * (DSIdentc - inv3 * trb * binv));
+						}
+
+						double h0 = DSHis[p1];
+						if (Wp > h0) h0 = Wp;
+
+						const double fm = 0.5 * body.czero / sqrt(4.0 * body.gc * body.lc * h0 + body.gc * body.gc);
+						const double term1 = body.gc * (2.0 * body.lc * lapc + 0.5 * (1.0 - phfp1) / body.lc) - 2.0 * phfp1 * h0 - DSPhiDot[p1] / fm;
+
+						DSPhiDDot[p1] = 0.5 * body.czero * body.czero * term1 / (body.gc * body.lc);
+						DSHis[p1] = h0;
+					}
+				}
+				else {
+					const double inv_jac = 1.0 / jac;
+					const double inv3 = 1.0 / 3.0;
+					const tmatrix3d b = fmath::MulMatrix3x3(fmath::TrasMatrix3x3(defgradp1), defgradp1);
+					tmatrix3d binv;
+					if (simulate2d) {
+						binv = fmath::InverseMatrix2x2(b);
+						binv.a22 = 1.0;
+					}
+					else binv = fmath::InverseMatrix3x3(b);
+
+					const double trb = fmath::Trace3x3(b);
+					const double trbb = pow(inv_jac, 2.0 * inv3) * trb;
+					PK2 = 0.5 * body.bulk * (jac * jac - 1.0) * binv + pow(inv_jac, 2.0 * inv3) * body.mu * (DSIdentc - inv3 * trb * binv);
+				}
+			}
+			else if (constmdl == CONSTITMODEL_J2) {
+				const double body_mu = double(body.mu);
+				const double body_lambda = double(body.lambda);
+				const double body_hard = double(body.hardening);
+				const double sigma_y0 = double(body.yieldstress);
+
+				// ---------------------------------------------------------------------
+				// Total deformation gradient and right Cauchy-Green tensor
+				// Must be the same 3D embedding convention as GPU.
+				// ---------------------------------------------------------------------
+				tmatrix3d defgradT = fmath::TrasMatrix3x3(defgradp1);
+				tmatrix3d C = fmath::MulMatrix3x3(defgradT, defgradp1);
+				fmath::SymmetrizeMatrix3x3(C);
+
+				const double J = std::fmax(fmath::Determinant3x3(defgradp1), 1e-12);
+
+				// ---------------------------------------------------------------------
+				// Previous plastic deformation gradient Fp_n
+				// ---------------------------------------------------------------------
+				tmatrix3d Fp = DSPlasticFp ? DSPlasticFp[p1] : fmath::IdentMatrix3x3d();
+				if (simulate2d) {
+					Fp.a12 = 0.0; Fp.a21 = 0.0;
+					Fp.a23 = 0.0; Fp.a32 = 0.0;
+					if (std::fabs(Fp.a22) < 1e-12) Fp.a22 = 1.0;
+				}
+
+				// ---------------------------------------------------------------------
+				// Trial elastic state from Fp_n
+				// ---------------------------------------------------------------------
+				tmatrix3d M_dev_trial;
+				double sigma_eq_trial = 0.0;
+				fmath::ComputeMandelDevAndEqStressd(C, J, Fp, body_mu, M_dev_trial, sigma_eq_trial);
+
+				double plastic_strain = (DSEqPlastic ? DSEqPlastic[p1] : 0.0);
+				const double sigma_y_trial = std::fmax(sigma_y0 + body_hard * plastic_strain, 0.0);
+
+				// Default: elastic
+				tmatrix3d Fp_new = Fp;
+
+				// ---------------------------------------------------------------------
+				// Plastic corrector
+				// ---------------------------------------------------------------------
+				if (sigma_eq_trial > sigma_y_trial + double(ALMOSTZERO)) {
+					const double sigma_eq_safe = std::fmax(sigma_eq_trial, double(ALMOSTZERO));
+
+					tmatrix3d Nflow_trial = fmath::ScaleMatrix3x3d(M_dev_trial, 1.5 / sigma_eq_safe);
+					Nflow_trial = fmath::DeviatoricMatrix3x3d(Nflow_trial);
+					fmath::SymmetrizeMatrix3x3(Nflow_trial);
+
+					tmatrix3d Fp_sol;
+					const double dgamma = fmath::SolveDgammaIllinoisd(
+						Nflow_trial, Fp, C, J, body_mu,
+						sigma_y0, body_hard, plastic_strain,
+						sigma_eq_trial, sigma_y_trial, &Fp_sol);
+
+					Fp_new = Fp_sol;
+					plastic_strain += dgamma;
+				}
+
+				// ---------------------------------------------------------------------
+				// Updated elastic state from Fp_{n+1}
+				// ---------------------------------------------------------------------
+				tmatrix3d M_dev_new;
+				double sigma_eq_new = 0.0;
+				fmath::ComputeMandelDevAndEqStressd(C, J, Fp_new, body_mu, M_dev_new, sigma_eq_new);
+
+				// ---------------------------------------------------------------------
+				// Stress recovery
+				// M = Ce * Se  =>  Se = Ce^{-1} * M
+				// S = Fp^{-1} * Se * Fp^{-T}
+				// ---------------------------------------------------------------------
+				tmatrix3d Fp_new_inv = fmath::InverseMatrix3x3(Fp_new);
+				tmatrix3d Fp_new_invT = fmath::TrasMatrix3x3(Fp_new_inv);
+				tmatrix3d Fp_newT = fmath::TrasMatrix3x3(Fp_new);
+
+				tmatrix3d C_inv = fmath::InverseMatrix3x3(C);
+
+				tmatrix3d tmpCeInv = fmath::MulMatrix3x3(C_inv, Fp_newT);
+				tmatrix3d Ce_inv = fmath::MulMatrix3x3(Fp_new, tmpCeInv);
+				fmath::SymmetrizeMatrix3x3(Ce_inv);
+
+				tmatrix3d Se_dev = fmath::MulMatrix3x3(Ce_inv, M_dev_new);
+
+				tmatrix3d tmpS = fmath::MulMatrix3x3(Se_dev, Fp_new_invT);
+				tmatrix3d S_dev = fmath::MulMatrix3x3(Fp_new_inv, tmpS);
+				fmath::SymmetrizeMatrix3x3(S_dev);
+
+				// ---------------------------------------------------------------------
+				// Volumetric PK2 part
+				// ---------------------------------------------------------------------
+				const double bulk = body_lambda + (2.0 / 3.0) * body_mu;
+				const double vol_coeff = 0.5 * bulk * (J * J - 1.0);
+
+				PK2 = S_dev;
+				PK2.a11 += vol_coeff * C_inv.a11; PK2.a12 += vol_coeff * C_inv.a12; PK2.a13 += vol_coeff * C_inv.a13;
+				PK2.a21 += vol_coeff * C_inv.a21; PK2.a22 += vol_coeff * C_inv.a22; PK2.a23 += vol_coeff * C_inv.a23;
+				PK2.a31 += vol_coeff * C_inv.a31; PK2.a32 += vol_coeff * C_inv.a32; PK2.a33 += vol_coeff * C_inv.a33;
+				fmath::SymmetrizeMatrix3x3(PK2);
+
+				// ---------------------------------------------------------------------
+				// Save internal variables
+				// ---------------------------------------------------------------------
+				if (DSEqPlastic) DSEqPlastic[p1] = std::fmax(plastic_strain, 0.0);
+				if (DSPlasticFp) DSPlasticFp[p1] = Fp_new;
+
+				// Keep Cp as a derived quantity, like GPU
+				if (DSPlasticStrain) {
+					Fp_newT = fmath::TrasMatrix3x3(Fp_new);
+					tmatrix3d Cp_new = fmath::MulMatrix3x3(Fp_newT, Fp_new);
+					fmath::SymmetrizeMatrix3x3(Cp_new);
+					DSPlasticStrain[p1] = Cp_new;
+				}
+			}
+			DSPiolKir[p1] = fmath::MulMatrix3x3(defgradp1, PK2);
+			DSPiolKir[p1] = fmath::MulMatrix3x3(defgradp1, PK2);
+		}
+
+#ifdef OMP_USE
+#pragma omp for
+#endif
+		for (int p1 = 0; p1 < MapNdeformstruc; p1++)
+		{
+			const unsigned numpairsp1 = DSPairN[p1];
+			const unsigned addp1 = DSPairStart[p1];
+			const tdouble3 pos0p1 = DSPos0[p1];
+			const tdouble3 dispp1 = DSDisp[p1];
+			const tdouble3 posp1 = pos0p1 + dispp1;
+			const tdouble3 velp1 = DSVel[p1];
+			const tdouble3 fluidforcep1 = DSFlForce[p1];
+			tdouble3 acclp1 = { 0.0,0.0,0.0 };
+			const tmatrix3d piolakp1 = DSPiolKir[p1];
+			const tmatrix3d defgradF = DSDefGrad[p1];
+			const unsigned bodyid1 = CODE_GetIbodyDeformStruc(DSCode[p1]);
+			StDeformStrucIntData body = DefStrucIntData[bodyid1];
+			float surfacefact = 1.0f / (body.vol0 * (1.0f / DSKerSumVol[p1] - body.selfkern));
+			const tbcstruc bcf = DSPartFBC[p1];
+			tdouble3 forcebnd = TDouble3(0.0, 0.0, 0.0);
+			if (currenttime > bcf.tst && currenttime < bcf.tend) {
+				bool skip;
+				double value;
+				float conversionFactor = 1.0f;
+				unsigned forcetype = DSBC_GET_FORCETYPE(bcf.flags);
+				if (forcetype == DSBC_FORCETYPE_POINT) {
+					conversionFactor = 1.0f / (body.vol0 * body.rho0) * surfacefact;
+				}
+				else if (forcetype == DSBC_FORCETYPE_SURFACE) {
+					conversionFactor = 1.0f / (body.dp * body.rho0) * surfacefact;
+				}
+
+				if (DSBC_GET_X_FLAG(bcf.flags)) {
+					forcebnd.x = bcf.x;
+				}
+				else if (DSBC_GET_X_IS_EXPR(bcf.flags)) {
+					skip = false;
+					value = UserExpressions->GetById(DSBC_GET_X_EXPRID(bcf.flags))->Evaluate(pos0p1, posp1, dispp1, currenttime, float(dsdt), body.dp, skip);
+					if (!skip) forcebnd.x = value * conversionFactor;
+				}
+
+				if (DSBC_GET_Y_FLAG(bcf.flags)) {
+					forcebnd.y = bcf.y;
+				}
+				else if (DSBC_GET_Y_IS_EXPR(bcf.flags)) {
+					skip = false;
+					value = UserExpressions->GetById(DSBC_GET_Y_EXPRID(bcf.flags))->Evaluate(pos0p1, posp1, dispp1, currenttime, float(dsdt), body.dp, skip);
+					if (!skip) forcebnd.y = value * conversionFactor;
+				}
+
+				if (DSBC_GET_Z_FLAG(bcf.flags)) {
+					forcebnd.z = bcf.z;
+				}
+				else if (DSBC_GET_Z_IS_EXPR(bcf.flags)) {
+					skip = false;
+					value = UserExpressions->GetById(DSBC_GET_Z_EXPRID(bcf.flags))->Evaluate(pos0p1, posp1, dispp1, currenttime, float(dsdt), body.dp, skip);
+					if (!skip) forcebnd.z = value * conversionFactor;
+				}
+			}
+
+			double phfp1_sq = 1.0;
+			if (body.fracture) {
+				const double phfp1 = DSPhi[p1];
+				phfp1_sq = phfp1 * phfp1;
+			}
+			double jacob;
+			tmatrix3d defgradInv;
+			if (simulate2d) {
+				jacob = fmath::Determinant2x2(defgradF);
+				defgradInv = fmath::InverseMatrix2x2(defgradF);
+				defgradInv.a22 = 1.0e0;
+			}
+			else {
+				jacob = fmath::Determinant3x3(defgradF);
+				defgradInv = fmath::InverseMatrix3x3(defgradF);
+			}
+			if (body.constitmodel == CONSTITMODEL_J2) {
+				double epbar = DSEqPlastic[p1];
+				defgradInv = fmath::SafeInvDefgrad(defgradF, epbar > SIGN_PLASTIC_FLOW, jacob);
+			}
+
+			tdouble3 viscacc = { 0.0,0.0,0.0 };
+			for (unsigned pair = 0; pair < numpairsp1; pair++)
+			{
+				const unsigned pairadd = addp1 + pair;
+				const unsigned p2 = DSPairJ[pairadd];
+				const tdouble3 ker_der = DSKerDerV0[pairadd];
+				const tmatrix3d piolakp2 = DSPiolKir[p2];
+
+				acclp1.x += (piolakp1.a11 + piolakp2.a11) * ker_der.x + (piolakp1.a12 + piolakp2.a12) * ker_der.y + (piolakp1.a13 + piolakp2.a13) * ker_der.z;
+				acclp1.y += (piolakp1.a21 + piolakp2.a21) * ker_der.x + (piolakp1.a22 + piolakp2.a22) * ker_der.y + (piolakp1.a23 + piolakp2.a23) * ker_der.z;
+				acclp1.z += (piolakp1.a31 + piolakp2.a31) * ker_der.x + (piolakp1.a32 + piolakp2.a32) * ker_der.y + (piolakp1.a33 + piolakp2.a33) * ker_der.z;
+
+				const tdouble3 pos0p2 = DSPos0[p2];
+				const tdouble3 dispp2 = DSDisp[p2];
+				const tdouble3 vel_dif = DSVel[p2] - velp1;
+				const tdouble3 currdiff = (pos0p2 + dispp2) - (pos0p1 + dispp1);
+				const double dist2 = fmath::DotVec3(currdiff, currdiff);
+				const double vijx = fmath::DotVec3(vel_dif, currdiff);
+				if (vijx < 0.0f) {
+					const double muij = vijx * body.kernelh / (dist2 + 0.01f * body.kernelh * body.kernelh);
+					const double q = body.avfactor1 * body.czero * muij - body.avfactor2 * muij * muij;
+					viscacc += ker_der * q;
+				}
+			}
+
+			const double invrho0 = 1.0f / body.rho0;
+			acclp1 *= invrho0;
+			const tmatrix3d defgradInvT = fmath::TrasMatrix3x3(defgradInv);
+			const tdouble3 viscforce = fmath::MulMatrix3x3Vec3(defgradInvT, viscacc);
+			acclp1 += viscforce * jacob;
+
+			acclp1 += forcebnd;
+			acclp1 += fluidforcep1;
+			acclp1 += TDouble3(Gravity.x, Gravity.y, Gravity.z);
+			if (simulate2d) acclp1.y = 0.0;
+			DSAccl[p1] = acclp1;
+
+			const double dt_av = body.kernelh / (body.czero + sqrt(velp1.x * velp1.x + velp1.y * velp1.y + velp1.z * velp1.z));
+			const double famag = acclp1.x * acclp1.x + acclp1.y * acclp1.y + acclp1.z * acclp1.z;
+			double dt_accl = (famag > double(ALMOSTZERO)) ? sqrt(body.kernelh / sqrt(famag)) : DBL_MAX;
+			dt_accl = min(dt_accl, dt_av);
+
+			const int th = omp_get_thread_num();
+			if (dt_accl < arrminmax[th * OMP_STRIDE].x) arrminmax[th * OMP_STRIDE].x = dt_accl;
+
+		}
+	}
+
+	DSMaxDt = DBL_MAX;
+	for (int th = 0; th < OmpThreads; th++) DSMaxDt = min(DSMaxDt, arrminmax[th * OMP_STRIDE].x);
+}
+
+//==============================================================================================================================
+/// Performs Pre-time integration calculations for the deformable structures.
+/// Initializes the associated arrays for the deformable structures.
+//==============================================================================================================================
+void JSphCpuSingle::DSPreTimeInt()
+{
+	Timersc->TmStart(TMC_SuDeformStruc);
+	Log->Print("\nInitialising Deformable Structures...");
+	const float kernelk = GetKernelKFactor();
+	DSFracture = false;
+	DSPlastic = false;
+	DSContPowerCoeff = DeformStruc->ContPowerCoeff;
+	DeformStrucCount = DeformStruc->GetCount();
+	DSIdentc = TMatrix3d(0.0); DSIdentc.a11 = 1.0; DSIdentc.a22 = 1.0; DSIdentc.a33 = 1.0;
+	DSNstep = 0;
+	DSPartNstep = 0;
+	DSDtModif = 0;
+	DSDtModifWrn = 1;
+	DeformStruc->DSConfigCode(Npb, Codec, MkInfo);
+
+	if (TBoundary == BC_MDBC && DSHasNormals(Npb, Codec, BoundNormalc))
+		Run_Exceptioon("mDBC normals are not permitted to be set for a deformable structure.");
+	DefStrucIntData = (StDeformStrucIntData*)malloc(sizeof(StDeformStrucIntData) * DeformStrucCount);
+	StDeformStrucData* deformstrucdata = new StDeformStrucData[DeformStrucCount];
+	MemCpuFixed += DeformStrucCount * sizeof(StDeformStrucIntData);
+	for (unsigned bodyid = 0; bodyid < DeformStrucCount; bodyid++) {
+		JSphDeformStrucBody& body = *DeformStruc->List[bodyid];
+		StDeformStrucData& DSdata = deformstrucdata[bodyid];
+		DSdata.vol0 = body.GetPartVol(); DSdata.rho0 = body.GetDensity(); DSdata.youngmod = body.GetYoungMod();
+		DSdata.poissratio = body.GetPoissRatio(); DSdata.gc = body.GetGc(); DSdata.constitmodel = body.GetConstModel();
+		DSdata.lamemu = body.GetLameMu(); DSdata.lamelambda = body.GetLameLmbda(); DSdata.lamebulk = body.GetLameBulk();
+		DSdata.czero = body.GetSoundSpeed(); DSdata.fracture = body.GetFracture(); DSdata.pfLim = body.GetPfLim();
+		DSdata.lenscale = body.GetLenScale(); DSdata.mkbound = body.MkBound; DSdata.avfactor1 = body.GetAvFactor1(); DSdata.avfactor2 = body.GetAvFactor2();  DSdata.dp = body.GetDp();
+		DSdata.mapfact = body.GetMapfact(); DSdata.nvbc = body.GetNvBC(); DSdata.nfbc = body.GetNfBC(); DSdata.nnotch = body.GetNnotch();
+		DSdata.kfric = body.GetKFric(); DSdata.restcoeff = body.GetRestCoeff();
+		DSdata.yieldstress = body.GetYieldStress(); DSdata.hardening = body.GetHardening();
+		DSdata.particlemass = DSdata.vol0 * DSdata.rho0;
+		DSdata.nmeasplane = body.GetNMeasPlane(); DSdata.nbsrange = body.GetNBsfact();
+		memcpy(DSdata.bcvel, body.GetVBClist(), sizeof(tbcstrucbody) * DSdata.nvbc);
+		memcpy(DSdata.bcforce, body.GetFBClist(), sizeof(tbcstrucbody) * DSdata.nfbc);
+		memcpy(DSdata.notchlist, body.GetNotchList(), sizeof(plane4Nstruc) * DSdata.nnotch);
+		memcpy(DSdata.measplanelist, body.GetMeasPlaneList(), sizeof(plane4Nstruc) * DSdata.nmeasplane);
+
+		DSdata.kernelh = body.GetKernelh();
+		DSdata.kernelsize = body.GetKernelsize();
+		DSdata.kernelsize2 = DSdata.kernelsize * DSdata.kernelsize;
+		DSdata.selfkern = DSGetSelfKernBody(DSdata.kernelh);
+		DSdata.tau = (1.0f - DSdata.poissratio * DSdata.poissratio) / DSdata.youngmod;
+		if (DSdata.constitmodel == CONSTITMODEL_J2) {
+			DSdata.fracture = false;
+			DSPlastic = true;
+		}
+		else if (DSdata.fracture) DSFracture = true;
+		DSdata.npbody = 0; DSdata.npstart = 0;
+		DSdata.min = { DBL_MAX,DBL_MAX, DBL_MAX };
+		DSdata.max = { -DBL_MAX,-DBL_MAX, -DBL_MAX };
+
+	}
+	CaseNdeformstruc = DSCountOrgParticles(Npb, Codec);
+
+	DeformStrucRidp = new unsigned[CaseNdeformstruc]();		MemCpuFixed += (sizeof(unsigned) * CaseNdeformstruc);
+	DSBestChild = new unsigned[CaseNdeformstruc]();			MemCpuFixed += (sizeof(unsigned) * CaseNdeformstruc);
+	DSPosOrg0 = new tdouble3[CaseNdeformstruc];				MemCpuFixed += (sizeof(tdouble3) * CaseNdeformstruc);
+
+	DSCalcRidp(Npb, DeformStrucRidp, Codec);
+
+	MapNdeformstruc = DSCountMappedParticles(deformstrucdata);
+	DSAllocCpuMemoryFixed();
+	DSGenMappedParticles(deformstrucdata);
+	DSPerformCellDiv(deformstrucdata);
+	DSCalcIbodyRidp(deformstrucdata);
+
+	DSDetermineMapCenters(deformstrucdata);
+	DSNumPairs = DSCountTotalPairs(deformstrucdata);
+	if (DSNumPairs != unsigned(DSNumPairs))
+		Run_Exceptioon("Number of deformable structure pairs is very high. Decrease kernel size or increase particle distancing.");
+
+	else Log->Print(std::string("  Total deformable solid pairs=") + fun::IntStr(DSNumPairs));
+	DSKer = new double[DSNumPairs]();			MemCpuFixed += (sizeof(double) * DSNumPairs);
+	DSKerDerV0 = new tdouble3[DSNumPairs]();	MemCpuFixed += (sizeof(tdouble3) * DSNumPairs);
+	DSKerLapc = new double[DSNumPairs]();		MemCpuFixed += (sizeof(double) * DSNumPairs);
+	DSPairJ = new unsigned[DSNumPairs]();		MemCpuFixed += (sizeof(unsigned) * DSNumPairs);
+	DSCalcKers(deformstrucdata);
+	DSFindSurfParticles();
+	Log->Print(std::string("  Total surface particles=") + fun::IntStr(DSNpSurf));
+
+	for (unsigned bodyid = 0; bodyid < DeformStrucCount; bodyid++) {
+		StDeformStrucData& DSdata = deformstrucdata[bodyid];
+		StDeformStrucIntData& dsintdata = DefStrucIntData[bodyid];
+		dsintdata = StDeformStrucIntData(DSdata.npbody, DSdata.npstart, DSdata.mkbound, DSdata.pfLim,
+			DSdata.fracture, DSdata.lamelambda,
+			DSdata.lamebulk, DSdata.lamemu, DSdata.vol0, DSdata.rho0,
+			DSdata.czero, DSdata.gc, float(DSdata.lenscale), DSdata.avfactor1, DSdata.avfactor2,
+			DSdata.mass, DSdata.kfric, DSdata.yieldstress, DSdata.hardening, DSdata.tau, DSdata.restcoeff, DSdata.mapfact,
+			DSdata.kernelh, DSdata.constitmodel, DSdata.nmeasplane, float(DSdata.dp), DSdata.youngmod, DSdata.nbsrange, DSdata.selfkern);
+	}
+
+	DSSetBoundCond(deformstrucdata);
+	DSInitFieldVars(deformstrucdata, 0.0);
+	DSCalcMaxInitTimeStep(deformstrucdata);
+
+	measplane::DSfindPointsNearestToMeasurePlanes(deformstrucdata, DeformStrucCount, DSNMeasPlanes,
+		DSNPartMeasPlanes, MemCpuFixed, DSMeasPlOutFiles, DSMeasPlnCnt, DSCode, DSPos0,
+		DSMeasPlnPart, MapNdeformstruc, Log, Simulate2D);
+
+	DeformStruc->DSSaveInitDomainInfo(Simulate2D, MapNdeformstruc, DSNpSurf, CaseNdeformstruc,
+		DSParent, DSPartVBC, DSPartFBC, DSCode, DSPos0, DSVel,
+		DSPairN, DSPairStart, DSPairJ, DSKer, DSKerDerV0, DSKerLapc, DSKerSumVol, DSSurfPartList,
+		DeformStrucRidp, DSBestChild, DSiBodyRidp,
+		DSMeasPlnPart, DSMeasPlnCnt, DSNMeasPlanes,
+		DefStrucIntData, deformstrucdata, DirOut, UserExpressions);
+	Log->Print(std::string("  Maximum deformable structure timestep (initial)=") + fun::DoubleStr(DSMaxDt) + std::string(" s"));
+	Log->Print("Computational domain for deformable structure(s) is set");
+	Log->Print("");
+	Timersc->TmStop(TMC_SuDeformStruc);
+
+}

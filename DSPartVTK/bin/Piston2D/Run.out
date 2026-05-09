@@ -1,0 +1,189 @@
+
+
+ <DUALSPHYSICS5> Copyright (c) 2020 by
+ Dr Jose M. Dominguez, Dr Alejandro Crespo,
+ Prof. Moncho Gomez Gesteira, Prof. Benedict Rogers,
+ Dr Georgios Fourtakas, Prof. Peter Stansby, Dr Ricardo Canelas,
+ Dr Renato Vacondio, Dr Corrado Altomare, Dr Angelo Tafuni,
+ Orlando Garcia-Feal, Dr Jose Gonzalez Cao
+
+ EPHYSLAB Environmental Physics Laboratory, Universidade de Vigo
+ School of Mechanical, Aerospace and Civil Engineering, University of Manchester
+
+ DualSPHysics is free software: you can redistribute it and/or
+ modify it under the terms of the GNU Lesser General Public License
+ as published by the Free Software Foundation, either version 2.1 of
+ the License, or (at your option) any later version.
+
+ DualSPHysics is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU Lesser General Public License for more details.
+
+ You should have received a copy of the GNU Lesser General Public License
+ along with DualSPHysics. If not, see <http://www.gnu.org/licenses/>.
+
+
+DualSPHysics5 v5.0.095 (02-04-2020)
+====================================
+Threads by host for parallel execution: 12
+[Initialising JSphCpuSingle  05-04-2020 14:22:09]
+ProgramFile=".../DualSPHysics4Full_vs2015_Mgpu/Run/DualSPHysics_win64_v095.exe"
+ExecutionDir=".../Mgpu/DualSPHysics4Full_vs2015_Mgpu/Run"
+XmlFile=".../_DataCasesBi4_/TestDOF/Piston2D.xml"
+OutputDir=".../DualSPHysics4Full_vs2015_Mgpu/Run/_win64_v095_cpu_Piston2D__Ignore"
+OutputDataDir=".../Run/_win64_v095_cpu_Piston2D__Ignore/data"
+
+*** WARNING: Eps value is not used (this correction is deprecated).
+
+XML-Vars (uservars + ctes): CaseName=["Piston2D"]  Data2D=[1]  Data2DPosy=[1]  H=[0.0612372]  B=[182186]  Gamma=[7]  Rhop0=[1000]  Dp=[0.05]  Gravity_x=[0]  Gravity_y=[0]  Gravity_z=[-9.81]  MassFluid=[2.5]  MassBound=[2.5]
+
+*** WARNING: The options IncZ and DomainFixedXXXX are deprecated.
+
+XML-Vars (parameters): TimeMax=[1]  TimeOut=[0.1]
+**Basic case configuration is loaded
+**Special case configuration is loaded
+Loading initial state of particles...
+Loaded particles: 3186
+MapRealPos(border)=(1.99694,0.996938,-0.00306186)-(15.0031,1.00306,2.45306)
+MapRealPos(final)=(1.99694,0.996938,-0.00306186)-(15.0031,1.00306,2.69867)
+**Initial state of particles is loaded
+**2D-Simulation parameters:
+CaseName="Piston2D"
+RunName="_win64_v095_cpu_Piston2D__Ignore"
+Simulate2DPosY=1
+Symmetry=False
+SavePosDouble=False
+SaveFtAce=False
+SvTimers=True
+Boundary="DBC"
+StepAlgorithm="Symplectic"
+Kernel="Wendland"
+Viscosity="Artificial"
+  Visco=0.100000
+  ViscoBoundFactor=1.000000
+DensityDiffusion="None"
+Shifting="None"
+RigidAlgorithm="None"
+FloatingCount=0
+CaseNp=3186
+CaseNbound=594
+CaseNfixed=349
+CaseNmoving=245
+CaseNfloat=0
+CaseNfluid=2592
+PeriodicActive="None"
+Dx=0.05
+H=0.061237
+CoefficientH=0.866025
+CteB=182185.718750
+Gamma=7.000000
+RhopZero=1000.000000
+Cs0=35.7113
+CFLnumber=0.200000
+DtIni=0.0001
+DtMin=1e-05
+DtAllParticles=False
+MassFluid=2.500000
+MassBound=2.500000
+Awen (Wendland)=148.533463
+Bwen (Wendland)=-12128.583008
+TimeMax=1
+TimePart=0.1
+Gravity=(0.000000,0.000000,-9.810000)
+NpMinimum=594
+RhopOut=True
+RhopOutMin=700.000000
+RhopOutMax=1300.000000
+WrnPartsOut=True
+**Requested CPU memory for 3196 particles: 0.5 MB.
+CellMode="2H"
+Hdiv=1
+MapCells=(107,1,23)
+DomCells=(107,1,23)
+DomCellCode="14_8_11"
+**CellDiv: Requested cpu memory for 3355 particles: 0.1 MB.
+**CellDiv: Requested cpu memory for 1960 cells (CellMode=2H): 0.0 MB.
+ 
+RunMode="Pos-Double - Stable - OpenMP(Threads:12)"
+ 
+Particle summary:
+  Fixed....: 349  id:(0-348)   MKs:1 (11)
+  Moving...: 245  id:(349-593)   MKs:1 (21)
+  Floating.: 0
+  Fluid....: 2592  id:(594-3185)   MKs:1 (1)
+
+Total particles: 3186 (bound=594 (fx=349 mv=245 ft=0) fluid=2592)
+Total MK blocks: 3 (bound=2 (fx=1 mv=1 ft=0) fluid=1)
+ 
+Allocated memory in CPU: 684400 (0.65 MB)
+Part_0000        3186 particles successfully stored
+
+[WARNINGS]
+1. Eps value is not used (this correction is deprecated).
+2. The options IncZ and DomainFixedXXXX are deprecated.
+
+[Initialising simulation (tize759l)  05-04-2020 14:22:09]
+PART       PartTime      TotalSteps    Steps    Time/Sec   Finish time        
+=========  ============  ============  =======  =========  ===================
+Part_0001      0.100169           294      294       3.45  05-04-2020 14:22:12
+Part_0002      0.200285           587      293       3.44  05-04-2020 14:22:11
+Part_0003      0.300332           880      293       3.52  05-04-2020 14:22:12
+Part_0004      0.400187          1173      293       3.42  05-04-2020 14:22:12
+Part_0005      0.500272          1466      293       3.41  05-04-2020 14:22:11
+Part_0006      0.600135          1758      292       3.40  05-04-2020 14:22:12
+Part_0007      0.700074          2050      292       3.41  05-04-2020 14:22:12
+Part_0008      0.800013          2342      292       3.41  05-04-2020 14:22:11
+Part_0009      0.900272          2635      293       3.40  05-04-2020 14:22:12
+Part_0010      1.000150          2927      292       3.40  05-04-2020 14:22:12
+
+[Simulation finished  05-04-2020 14:22:12]
+Particles of simulation (initial): 3186
+DTs adjusted to DtMin............: 0
+Excluded particles...............: 0
+Total Runtime....................: 3.488167 sec.
+Simulation Runtime...............: 3.427074 sec.
+Time per second of simulation....: 3.426558 sec.
+Steps per second.................: 854.081421
+Steps of simulation..............: 2927
+PART files.......................: 11
+Maximum number of particles......: 3186
+Maximum number of cells..........: 897
+CPU Memory.......................: 684400 (0.65 MB)
+ 
+[CPU Timers]
+VA-Init..........................: 0.060368 sec.
+NL-Limits........................: 0.124699 sec.
+NL-MakeSort......................: 0.172139 sec.
+NL-SortData......................: 0.184706 sec.
+NL-OutCheck......................: 0.000155 sec.
+CF-PreForces.....................: 0.585366 sec.
+CF-Forces........................: 1.547248 sec.
+SU-Shifting......................: 0.000000 sec.
+SU-ComputeStep...................: 0.680177 sec.
+SU-Floating......................: 0.000000 sec.
+SU-Motion........................: 0.000658 sec.
+SU-Periodic......................: 0.000000 sec.
+SU-ResizeNp......................: 0.000000 sec.
+SU-SavePart......................: 0.127425 sec.
+SU-Chrono........................: 0.000000 sec.
+SU-BoundCorr.....................: 0.000000 sec.
+SU-InOut.........................: 0.000000 sec.
+ 
+[Output files]
+- CfgInit_Domain.vtk...: Saves the limits of the case and the simulation domain limits.
+- CfgInit_MapCells.vtk.: Saves the cell division of the simulation domain.
+- Run.csv..............: One line CSV file with execution parameters and other simulation data.
+- Run.out..............: Log file of the simulation.
+- data/PartInfo.ibi4...: Binary file with execution information for each instant (input for PartInfo program).
+- data/PartOut_???.obi4: Binary file with particles excluded during simulation (input for PartVtkOut program).
+- data/Part_????.bi4...: Binary file with particle data in different instants.
+- data/Part_Head.ibi4..: Binary file with basic information of simulation data.
+ 
+[WARNINGS]
+1. Eps value is not used (this correction is deprecated).
+2. The options IncZ and DomainFixedXXXX are deprecated.
+ 
+
+Finished execution (code=0).
+

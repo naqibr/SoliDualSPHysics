@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- *** DualSPHysics (19-03-2020) *** -->
+<!-- *** class: JTimeOut *** -->
+<!------------------------------------------------------------------------------->
+<!------------------------------------------------------------------------------->
+<!-- *** Example to define a variable frequency to save results (PART_XXXX). *** -->
+<special>
+	<timeout>
+		<tout time="0" timeout="0.01" />
+		<tout time="0.1" timeout="0.5" />
+		<tout time="0.2" timeout="0.001" />
+		<tout time="0.3" timeout="0.01" />
+	</timeout>
+</special>
+<!------------------------------------------------------------------------------------>
+<!------------------------------------------------------------------------------------>
+<!-- *** Attribute "active" in element <timeout> to enable (using active="true" *** --> 
+<!-- *** or active="1") or disable (using active="false" or active="0").        *** -->
+<!-- *** It is an optional attribute and true by default.                       *** -->
+<timeout active="true">
+</timeout>
+
+
+
+
