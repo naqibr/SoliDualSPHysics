@@ -13,7 +13,7 @@ authors:
     affiliation: "Rutgers University"
 version: 1.0.0
 date-released: 2026-02-01 
-license: GPL-3.0-or-later
+license: LGPL-2.1-or-later
 keywords:
   - SPH
   - smoothed particle hydrodynamics
