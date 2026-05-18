@@ -185,7 +185,7 @@ For major contributions, please contact the development team first to discuss th
 ## Contact Information
 
 Dr. Naqib Rahimi  
-**Email**: Naqib.rahimi123@gmail.com
+**Email**: Naqib.rahimy123@gmail.com
 
 Dr. George Moutsanidis  
 **Email**: george.moutsanidis@rutgers.edu
