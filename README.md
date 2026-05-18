@@ -248,7 +248,7 @@ Simulations are defined in XML configuration files.
 <deformstrucbody mkbound="1">
   <!-- ... material properties ... -->
   <fracture value="1" comment="Enable phase-field fracture" />
-  <gc value="3.0" comment="Critical energy release rate (J/m²)" />
+  <Gc value="3.0" comment="Critical energy release rate (J/m²)" />
   <pflim value="0.9" comment="Phase-field limit for crack surface" />
 </deformstrucbody>
 ```
