@@ -199,7 +199,8 @@ inline tfloat3 TFloat3Set(const tfloat3& a,unsigned c,float v){ return(TFloat3((
 typedef enum {
     CONSTITMODEL_SVK = 1,
     CONSTITMODEL_NH = 2,
-    CONSTITMODEL_J2 = 3
+    CONSTITMODEL_J2 = 3,
+    CONSTITMODEL_HJC = 4
 }TpConstitModel;
 ///Structure of 2 variables of type double.
 typedef struct{

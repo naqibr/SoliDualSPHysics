@@ -19,6 +19,7 @@
 /// \file JSphCpuSingle.cpp \brief Implements the class \ref JSphCpuSingle.
 
 #include "JSphCpuSingle.h"
+#include "HjcKinematics.h"
 #include "JCellDivCpuSingle.h"
 #include "JCellSearch_inline.h"
 #include "JArraysCpu.h"
@@ -1289,6 +1290,7 @@ void JSphCpuSingle::SaveData() {
 			DSDefGrad, DSPiolKir, DSVel, DSPairN, DSPairStart, DSPairJ, DSNumPairs, DSKerDerV0, DSFlForce,
 			DSNMeasPlanes, DSMeasPlnCnt, DSNPartMeasPlanes, DSMeasPlnPart, DSKerSumVol);
 
+		if (DSHjc) AddHjcArrays(dsarrays,MapNdeformstruc,DSHjc,DSCode,DefStrucIntData);
 		EnsureDsDerivedArrays(dsarrays, DefStrucIntData, MapNdeformstruc);
 
 	}
@@ -1818,6 +1820,7 @@ void JSphCpuSingle::DSInitFieldVars(StDeformStrucData* deformstrucdata, const do
 		DSFlForce[p1] = { 0.0,0.0,0.0 };
 		if (DSEqPlastic) DSEqPlastic[p1] = 0.0;
 		if (DSPlasticStrain) DSPlasticStrain[p1] = DSIdentc;  // Initialize plastic metric to identity
+		if (DSHjc && body.constitmodel==CONSTITMODEL_HJC) DSHjc[p1]=hjc::initializeParticle(body.hjc);
 		if (DSPlasticFp) DSPlasticFp[p1] = DSIdentc;  // Initialize plastic metric to identity
 		DSDefGrad[p1] = DSIdentc;
 		DSJacob[p1] = 1.0;
@@ -2286,6 +2289,7 @@ void JSphCpuSingle::DSInteractionForcesDEM(const double dtdem)const
 //========================================================================================
 template<bool simulate2d>
 void JSphCpuSingle::DSInteraction_Forces(const double currenttime, const double dsdt) {
+	int hjcError=0;
 
 	for (int th = 0; th < OmpThreads; th++) {
 		arrminmax[th * OMP_STRIDE] = { DBL_MAX, DBL_MAX, DBL_MAX };
@@ -2602,8 +2606,23 @@ void JSphCpuSingle::DSInteraction_Forces(const double currenttime, const double 
 					DSPlasticStrain[p1] = Cp_new;
 				}
 			}
-			DSPiolKir[p1] = fmath::MulMatrix3x3(defgradp1, PK2);
-			DSPiolKir[p1] = fmath::MulMatrix3x3(defgradp1, PK2);
+            if (constmdl==CONSTITMODEL_HJC) {
+                const double f[]={defgradp1.a11,defgradp1.a12,defgradp1.a13,
+                    defgradp1.a21,defgradp1.a22,defgradp1.a23,
+                    defgradp1.a31,defgradp1.a32,defgradp1.a33};
+                double pk[9];
+                const double previous=DSHjc[p1].previous_dt;
+                const double interval=TStep==STEP_Symplectic ? 0.5*(previous+dsdt) : (previous>0?previous:dsdt);
+                if (!hjc::advance(body.hjc,f,interval,DSHjc[p1],pk)) {
+#ifdef OMP_USE
+#pragma omp atomic write
+#endif
+                    hjcError=1;
+                } else {
+                    DSPiolKir[p1]={pk[0],pk[1],pk[2],pk[3],pk[4],pk[5],pk[6],pk[7],pk[8]};
+                    DSHjc[p1].previous_dt=dsdt;
+                }
+            } else DSPiolKir[p1]=fmath::MulMatrix3x3(defgradp1,PK2);
 		}
 
 #ifdef OMP_USE
@@ -2623,6 +2642,8 @@ void JSphCpuSingle::DSInteraction_Forces(const double currenttime, const double 
 			const tmatrix3d defgradF = DSDefGrad[p1];
 			const unsigned bodyid1 = CODE_GetIbodyDeformStruc(DSCode[p1]);
 			StDeformStrucIntData body = DefStrucIntData[bodyid1];
+            const double sound=body.constitmodel==CONSTITMODEL_HJC ?
+                sqrt(DSHjc[p1].acoustic_modulus*DSJacob[p1]/body.rho0) : body.czero;
 			float surfacefact = 1.0f / (body.vol0 * (1.0f / DSKerSumVol[p1] - body.selfkern));
 			const tbcstruc bcf = DSPartFBC[p1];
 			tdouble3 forcebnd = TDouble3(0.0, 0.0, 0.0);
@@ -2707,7 +2728,7 @@ void JSphCpuSingle::DSInteraction_Forces(const double currenttime, const double 
 				const double vijx = fmath::DotVec3(vel_dif, currdiff);
 				if (vijx < 0.0f) {
 					const double muij = vijx * body.kernelh / (dist2 + 0.01f * body.kernelh * body.kernelh);
-					const double q = body.avfactor1 * body.czero * muij - body.avfactor2 * muij * muij;
+					const double q = body.avfactor1 * sound * muij - body.avfactor2 * muij * muij;
 					viscacc += ker_der * q;
 				}
 			}
@@ -2724,7 +2745,7 @@ void JSphCpuSingle::DSInteraction_Forces(const double currenttime, const double 
 			if (simulate2d) acclp1.y = 0.0;
 			DSAccl[p1] = acclp1;
 
-			const double dt_av = body.kernelh / (body.czero + sqrt(velp1.x * velp1.x + velp1.y * velp1.y + velp1.z * velp1.z));
+			const double dt_av = body.kernelh / (sound + sqrt(velp1.x * velp1.x + velp1.y * velp1.y + velp1.z * velp1.z));
 			const double famag = acclp1.x * acclp1.x + acclp1.y * acclp1.y + acclp1.z * acclp1.z;
 			double dt_accl = (famag > double(ALMOSTZERO)) ? sqrt(body.kernelh / sqrt(famag)) : DBL_MAX;
 			dt_accl = min(dt_accl, dt_av);
@@ -2735,6 +2756,7 @@ void JSphCpuSingle::DSInteraction_Forces(const double currenttime, const double 
 		}
 	}
 
+	if (hjcError) Run_Exceptioon("Invalid deformation in HJC update; check timestep and particle resolution.");
 	DSMaxDt = DBL_MAX;
 	for (int th = 0; th < OmpThreads; th++) DSMaxDt = min(DSMaxDt, arrminmax[th * OMP_STRIDE].x);
 }
@@ -2768,7 +2790,7 @@ void JSphCpuSingle::DSPreTimeInt()
 		JSphDeformStrucBody& body = *DeformStruc->List[bodyid];
 		StDeformStrucData& DSdata = deformstrucdata[bodyid];
 		DSdata.vol0 = body.GetPartVol(); DSdata.rho0 = body.GetDensity(); DSdata.youngmod = body.GetYoungMod();
-		DSdata.poissratio = body.GetPoissRatio(); DSdata.gc = body.GetGc(); DSdata.constitmodel = body.GetConstModel();
+		DSdata.poissratio = body.GetPoissRatio(); DSdata.gc = body.GetGc(); DSdata.constitmodel = body.GetConstModel(); DSdata.hjc=body.GetHjcParameters();
 		DSdata.lamemu = body.GetLameMu(); DSdata.lamelambda = body.GetLameLmbda(); DSdata.lamebulk = body.GetLameBulk();
 		DSdata.czero = body.GetSoundSpeed(); DSdata.fracture = body.GetFracture(); DSdata.pfLim = body.GetPfLim();
 		DSdata.lenscale = body.GetLenScale(); DSdata.mkbound = body.MkBound; DSdata.avfactor1 = body.GetAvFactor1(); DSdata.avfactor2 = body.GetAvFactor2();  DSdata.dp = body.GetDp();
@@ -2834,6 +2856,7 @@ void JSphCpuSingle::DSPreTimeInt()
 			DSdata.czero, DSdata.gc, float(DSdata.lenscale), DSdata.avfactor1, DSdata.avfactor2,
 			DSdata.mass, DSdata.kfric, DSdata.yieldstress, DSdata.hardening, DSdata.tau, DSdata.restcoeff, DSdata.mapfact,
 			DSdata.kernelh, DSdata.constitmodel, DSdata.nmeasplane, float(DSdata.dp), DSdata.youngmod, DSdata.nbsrange, DSdata.selfkern);
+		dsintdata.hjc=DSdata.hjc;
 	}
 
 	DSSetBoundCond(deformstrucdata);

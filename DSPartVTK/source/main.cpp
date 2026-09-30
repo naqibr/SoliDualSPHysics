@@ -461,6 +461,26 @@ static void ProcessDeformableStructures(const JCfgRun* cfg, const JPartDataBi4& 
         if (count) arr->GetDataCopy(count, dest.data()); return true;
         };
 
+    // HJC history is stored in double precision on both CPU and GPU.
+    std::map<std::string,std::vector<double>> hjcFields;
+    const char* hjcNames[]={"HJCDamage","HJCPlasticStrain","HJCPlasticVolume","HJCPressure","HJCInternalWork"};
+    for(const char* name : hjcNames) {
+        JBinaryDataArray* arr=getArray(name,JBinaryDataDef::DatDouble);
+        if(arr && getElementCount(arr)==particleCount) {
+            std::vector<double>& values=hjcFields[name];
+            values.resize(particleCount);
+            arr->GetDataCopy(particleCount,values.data());
+        }
+    }
+    auto addHjcFields = [&](JDataArrays& arrays,const unsigned* indices,unsigned count) {
+        if(!hjcFields.empty()) arrays.CreateArrayDouble("Time",count,true,timestep);
+        for(const auto& entry : hjcFields) {
+            double* values=new double[count];
+            for(unsigned i=0;i<count;++i) values[i]=entry.second.at(indices[i]);
+            arrays.AddArray(entry.first,count,values,true);
+        }
+    };
+
     std::vector<unsigned> mkbounds, bodynp, bodystart, bodymeas;
     std::vector<byte> bodyfracture;
     std::vector<float> bodypflim, bodylambda, bodybulk, bodymu, bodyvol0, bodyrho0, bodygc, bodylc, bodydp, bodyczero;
@@ -698,6 +718,7 @@ static void ProcessDeformableStructures(const JCfgRun* cfg, const JPartDataBi4& 
                 else if (!fforceDouble.empty()) fforceDouble[p] = dsfforceDouble[idx];
             }
             JDataArrays arraysdef;
+            if(body.constitutive==CONSTITMODEL_HJC) addHjcFields(arraysdef,dsibodyridp.data()+npstart,dfnp);
             arraysdef.AddArray("Pos0", dfnp, pos0.data());
 
             // Add timestep as a scalar field (constant for all particles)
@@ -980,7 +1001,7 @@ static void ProcessDeformableStructures(const JCfgRun* cfg, const JPartDataBi4& 
                 const tmatrix3d defg = dsdefgrad[idx];
                 const double det = fmath::Determinant3x3(defg);
                 if (fabs(det) > 1e-12) {
-                    const tmatrix3d cauchyFull = (1.0 / det) * fmath::MulMatrix3x3(defg, dspiolkir[idx]);
+                    const tmatrix3d cauchyFull = (1.0 / det) * fmath::MulMatrix3x3(dspiolkir[idx], fmath::TrasMatrix3x3(defg));
                     stress[p].xx = float(cauchyFull.a11);
                     stress[p].xy = float(cauchyFull.a12);
                     stress[p].xz = float(cauchyFull.a13);
@@ -1018,6 +1039,7 @@ static void ProcessDeformableStructures(const JCfgRun* cfg, const JPartDataBi4& 
 
             }
             JDataArrays arraysdef;
+            if(body.constitutive==CONSTITMODEL_HJC) addHjcFields(arraysdef,dsibodyridp.data()+npstart,dfnp);
             arraysdef.AddArray("Pos0", dfnp, pos0.data());
 
             // Add timestep as a scalar field (constant for all particles)

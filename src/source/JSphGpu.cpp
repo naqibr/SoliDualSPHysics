@@ -169,7 +169,7 @@ void JSphGpu::InitVars() {
 	DSPos0g = NULL; DSCodeg = NULL; DSDispPhig = NULL; DSVelg = NULL; DSAcclg = NULL; DSVelPreg = NULL;
 	DSDefGradg2D = NULL; DSPiolKirg2D = NULL; DSDefGradg3D = NULL; DSPiolKirg3D = NULL; DSPhiTdatag = NULL;
 	DSDefPk = NULL; DSParentg = NULL; DSDispCorxzg = NULL; DSDispCoryg = NULL;
-	DSiBodyRidpg = NULL; DSEqPlasticg = NULL; DSPlasticStraing = NULL; DSPlasticFpg = NULL; DSEqPlasticc = NULL; DSPlasticStraingc = NULL;
+	DSiBodyRidpg = NULL; DSEqPlasticg = NULL; DSPlasticStraing = NULL; DSPlasticFpg = NULL; DSHjcg = NULL; DSEqPlasticc = NULL; DSPlasticStraingc = NULL;
 	FreeGpuMemoryParticles();
 	FreeGpuMemoryFixed();
 }
@@ -257,6 +257,7 @@ void JSphGpu::FreeGpuMemoryFixed() {
 	if (DSEqPlasticg) cudaFree(DSEqPlasticg); DSEqPlasticg = NULL;
 	if (DSPlasticStraing) cudaFree(DSPlasticStraing); DSPlasticStraing = NULL;
 	if (DSPlasticFpg) cudaFree(DSPlasticFpg); DSPlasticFpg = NULL;
+	if (DSHjcg) cudaFree(DSHjcg); DSHjcg = NULL;
 	
 	if (DSFracture) {
 		if (DSPhiTdatag) cudaFree(DSPhiTdatag); DSPhiTdatag = NULL;
@@ -344,6 +345,10 @@ void JSphGpu::DSAllocGpuMemoryFixed() {
 			m = sizeof(float) * MapNdeformstruc;        cudaMalloc((void**)&DSDispCoryg, m);    MemGpuFixed += m;
 		}
 	}
+		if (DeformStruc->HasHjc()) {
+			m=sizeof(hjc::Particle)*MapNdeformstruc;
+			cudaMalloc((void**)&DSHjcg,m); MemGpuFixed+=m;
+		}
 		if (DSPlastic) {
 			m = sizeof(float) * MapNdeformstruc;			cudaMalloc((void**)&DSEqPlasticg, m);		MemGpuFixed += m; cudaMemset(DSEqPlasticg, 0, m);
 			m = sizeof(tmatrix3f) * MapNdeformstruc;		cudaMalloc((void**)&DSPlasticStraing, m);	MemGpuFixed += m; cudaMemset(DSPlasticStraing, 0, m);

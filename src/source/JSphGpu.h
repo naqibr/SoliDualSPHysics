@@ -207,6 +207,7 @@ protected:
 	float4* DSDispPhig;						///<Particle x,y,z: displacement and w:phase field in mapped domain [MapNdeformstruc].
 	float* DSEqPlasticg;					///<Equivalent plastic strain per particle in mapped domain [MapNdeformstruc].
 	tmatrix3f* DSPlasticStraing;			///<Deviatoric plastic strain tensor per particle in mapped domain [MapNdeformstruc].
+	hjc::Particle* DSHjcg;
 	matrix3f* DSPlasticFpg;
 	tfloat4* DSDispPhic;					///<Particle displacement in mapped domain [MapNdeformstruc]. used for visualization
 	float* DSEqPlasticc;					///<Equivalent plastic strain per particle on CPU [MapNdeformstruc].

@@ -2857,6 +2857,23 @@ void JSph::AddBasicArraysDS(JDataArrays& arrays, unsigned np, const tfloat4* pos
 	if (plasticdev) arrays.AddArray("DSPlasticDev", np, plasticdev);
 }
 
+void JSph::AddHjcArrays(JDataArrays& arrays,unsigned np,const hjc::Particle* points,
+    const typecode* codes,const StDeformStrucIntData* bodies)const {
+    double *damage=new double[np](), *plastic=new double[np](), *volume=new double[np](),
+           *pressure=new double[np](), *work=new double[np]();
+    for(unsigned i=0;i<np;++i) if(bodies[CODE_GetIbodyDeformStruc(codes[i])].constitmodel==CONSTITMODEL_HJC) {
+        const hjc::State& h=points[i].state;
+        damage[i]=h.damage;plastic[i]=h.plastic_strain;volume[i]=h.plastic_volume;
+        pressure[i]=-(h.stress[0]+h.stress[1]+h.stress[2])/3;
+        work[i]=points[i].internal_work;
+    }
+    arrays.AddArray("HJCDamage",np,damage,true);
+    arrays.AddArray("HJCPlasticStrain",np,plastic,true);
+    arrays.AddArray("HJCPlasticVolume",np,volume,true);
+    arrays.AddArray("HJCPressure",np,pressure,true);
+    arrays.AddArray("HJCInternalWork",np,work,true);
+}
+
 void JSph::EnsureDsDerivedArrays(JDataArrays& arrays, StDeformStrucIntData* deformstrucdata, unsigned dsnp)const
 {
 	if (!DeformStrucCount || !deformstrucdata || !dsnp) return;
@@ -2893,6 +2910,8 @@ void JSph::EnsureDsDerivedArrays(JDataArrays& arrays, StDeformStrucIntData* defo
 
 		if (needenergy) {
 			tdouble3 energies = DSCalcEnergies(defg, dsvel[p1], phival, dspairn[p1], dspairstart[p1], dspairj, dskerderv0, dsphi, eqp, plasticdev, body);
+            if (body.constitmodel==CONSTITMODEL_HJC && arrays.ExistsName("HJCInternalWork"))
+                energies.x=arrays.GetArrayDouble("HJCInternalWork")[p1];
 			energies.x *= body.vol0;
 			energies.y *= body.vol0;
 			energies.z *= body.vol0;
@@ -3159,6 +3178,9 @@ void JSph::SavePartData(unsigned npok, unsigned nout, const JDataArrays& arrays
 				if (DSNMeasPlanes && dsarrays.ExistsName("DSMeasPlnCnt")) dsitem->CreateArray("DSMeasPlnCnt", JBinaryDataDef::DatUint, DSNMeasPlanes, dsarrays.GetArrayUint("DSMeasPlnCnt"), false);
 				if (DSNPartMeasPlanes && dsarrays.ExistsName("DSMeasPlnPart")) dsitem->CreateArray("DSMeasPlnPart", JBinaryDataDef::DatUint, DSNPartMeasPlanes, dsarrays.GetArrayUint("DSMeasPlnPart"), false);
 
+				const char* hjcfields[]={"HJCDamage","HJCPlasticStrain","HJCPlasticVolume","HJCPressure","HJCInternalWork"};
+				for (const char* name : hjcfields)
+					if (dsarrays.ExistsName(name)) dsitem->CreateArray(name,JBinaryDataDef::DatDouble,dsnp,dsarrays.GetArrayDouble(name),false);
 				if (floatarrays) {
 					if (dsarrays.ExistsName("DSKerSumVol")) dsitem->CreateArray("DSKerSumVol", JBinaryDataDef::DatFloat, dsnp, dsarrays.GetArrayFloat("DSKerSumVol"), false);
 					if (dsarrays.ExistsName("DSPos0w")) dsitem->CreateArray("DSPos0w", JBinaryDataDef::DatFloat, dsnp * 4, dsarrays.GetArrayFloat4("DSPos0w"), false);
@@ -3399,7 +3421,7 @@ tdouble3 JSph::DSCalcEnergies(const tmatrix3d defgrad, const tdouble3 velp1,
 			energies.x = 0.5 * body.mu * (trbb - 3.0) + 0.5 * body.bulk * (0.5 * (jac * jac - 1.0) - log(jac));
 		}
 	}
-	else { // CONSTITMODEL_J2
+	else if (body.constitmodel==CONSTITMODEL_J2) { // CONSTITMODEL_J2
 		// Use multiplicative plasticity formulation consistent with stress calculation
 		tmatrix3d defgradT = fmath::TrasMatrix3x3(defgrad);
 		tmatrix3d cauchy_green = fmath::MulMatrix3x3(defgradT, defgrad);

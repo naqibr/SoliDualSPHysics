@@ -22,6 +22,7 @@
 #define _DualSphDef_
 
 #include "TypesDef.h"
+#include "HjcMaterial.h"
 #include "JAppInfoDef.h"
 #include "JParticlesDef.h"
 #include "JPeriodicDef.h"
@@ -311,7 +312,8 @@ typedef word typecode;            //-Type of the variable code using 2 bytes.
 typedef enum {
 	CONSTITMODEL_SVK = 1,           ///<St. Venant Kirchhoff.
 	CONSTITMODEL_NH = 2,            ///<Neo-Hookean hyperelastic.
-	CONSTITMODEL_J2 = 3             ///<J2 elasto-plastic with isotropic hardening.
+	CONSTITMODEL_J2 = 3,            ///<J2 elasto-plastic with isotropic hardening.
+	CONSTITMODEL_HJC = 4           ///<Holmquist-Johnson-Cook concrete.
 }TpConstitModel;
 ///Structure with the information of the deformable structure.
 typedef struct {
@@ -321,6 +323,7 @@ typedef struct {
 	float poissratio;						///<Poisson ratio
 	float particlemass;						///<Mass of particle
 	float gc;								///<Critical energy release rate
+	hjc::Parameters hjc;
 	TpConstitModel constitmodel;			///<Constitutive model.
 	bool fracture;							///<Switch to model fracture in the deformable structure
 	float pfLim;							///<Phase field limit, used for clearing the surface of the crack.
@@ -392,6 +395,7 @@ typedef struct StDeformStrucIntData {
 	float yieldstress;                      ///<Initial yield stress for J2 plasticity
 	float hardening;                        ///<Isotropic hardening modulus for J2 plasticity
 	float selfkern;							///<value of sph kernel at 0
+	hjc::Parameters hjc;
 	TpConstitModel constitmodel;	//Constitutive model
 	unsigned nmeasplane;			///<Starting index of particles for a body
 

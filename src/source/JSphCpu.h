@@ -331,6 +331,7 @@ protected:
 	double* DSJacob;						///<Particle determinant of deformation gradients
 	double* DSEqPlastic;					///<Equivalent plastic strain per particle [MapNdeformstruc].
 	tmatrix3d* DSPlasticStrain;				///<Deviatoric plastic strain tensor per particle [MapNdeformstruc].
+	hjc::Particle* DSHjc;
 	tmatrix3d* DSPlasticFp;				///<Deviatoric plastic strain tensor per particle [MapNdeformstruc].
 	unsigned* DSParent;						///<Id (as in Posc[id]) of particle to which the mapped particle is part [MapNdeformstruc].
 	unsigned* DSiBodyRidp;					///<Identifier to access each deformable structure particles [MapNdeformstruc].

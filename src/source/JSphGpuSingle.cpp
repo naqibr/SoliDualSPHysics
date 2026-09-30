@@ -1055,6 +1055,12 @@ void JSphGpuSingle::SaveData() {
 		AddBasicArraysDS(dsarrays, MapNdeformstruc, DSPos0c, DSDispPhic, (DSPlastic ? DSEqPlasticc : nullptr), (DSPlastic ? DSPlasticStraingc : nullptr),
 			DSParentc, DSCodec, DSiBodyRidpc, DeformStrucCount, defstrucenergies, dscauchystress, nullptr /*dsvel3.data()*/, dsparticleenergies.data(),
 			DSNMeasPlanes, DSMeasPlnCntc, DSNPartMeasPlanes, DSMeasPlnPartc, DSKerSumVolc, DSFlForcec);
+        if (DSHjcg) {
+            std::vector<hjc::Particle> points(MapNdeformstruc);
+            cudaMemcpy(points.data(),DSHjcg,sizeof(hjc::Particle)*MapNdeformstruc,cudaMemcpyDeviceToHost);
+            AddHjcArrays(dsarrays,MapNdeformstruc,points.data(),DSCodec,DefStrucIntDatac);
+        }
+
 		//for (int i = 0; i < MapNdeformstruc; i++) {
 		//	if (DSFlForcec[i].x || DSFlForcec[i].y || DSFlForcec[i].z) std::cout << "\n" << DSFlForcec[i].x << "\t" << DSFlForcec[i].y << "\t" << DSFlForcec[i].z;
 		//}
@@ -1414,7 +1420,7 @@ void JSphGpuSingle::DSPreTimeInt()
 		JSphDeformStrucBody& body = *DeformStruc->List[bodyid];
 		StDeformStrucData& DSdata = defstrucdatac[bodyid];
 		DSdata.vol0 = body.GetPartVol(); DSdata.rho0 = body.GetDensity(); DSdata.youngmod = body.GetYoungMod();
-		DSdata.poissratio = body.GetPoissRatio(); DSdata.gc = body.GetGc(); DSdata.constitmodel = body.GetConstModel();
+		DSdata.poissratio = body.GetPoissRatio(); DSdata.gc = body.GetGc(); DSdata.constitmodel = body.GetConstModel(); DSdata.hjc=body.GetHjcParameters();
 		DSdata.lamemu = body.GetLameMu(); DSdata.lamelambda = body.GetLameLmbda(); DSdata.lamebulk = body.GetLameBulk();
 		DSdata.czero = body.GetSoundSpeed(); DSdata.fracture = body.GetFracture(); DSdata.pfLim = body.GetPfLim();
 		DSdata.lenscale = body.GetLenScale(); DSdata.mkbound = body.MkBound; DSdata.avfactor1 = body.GetAvFactor1();
@@ -1563,6 +1569,7 @@ void JSphGpuSingle::DSPreTimeInt()
 			DSdata.czero, DSdata.gc, float(DSdata.lenscale), DSdata.avfactor1, DSdata.avfactor2,
 			DSdata.mass, DSdata.kfric, DSdata.yieldstress, DSdata.hardening, DSdata.tau, DSdata.restcoeff, DSdata.mapfact,
 			DSdata.kernelh, DSdata.constitmodel, DSdata.nmeasplane, float(DSdata.dp), DSdata.youngmod, DSdata.nbsrange, DSdata.selfkern);
+		dsintdata.hjc=DSdata.hjc;
 	}
 	cudaMemcpy(DefStrucIntDatag, DefStrucIntDatac, sizeof(StDeformStrucIntData) * DeformStrucCount, cudaMemcpyHostToDevice);
 
@@ -1572,7 +1579,7 @@ void JSphGpuSingle::DSPreTimeInt()
 		printf("CUDA Error after DSSetBoundCond: %s\n", cudaGetErrorString(cuerr));
 		exit(0);
 	}
-	cudefstr::DSInitFieldVars(TStep, MapNdeformstruc, DSCodeg, defstrucdatag, DSPartVBCg, DSPartFBCg, DSPartPhiBCg, DSKerSumVolg, DSAcclg, DSFlForceg, DSDispPhig, DSEqPlasticg, DSPlasticStraing, DSPlasticFpg,
+	cudefstr::DSInitFieldVars(TStep, MapNdeformstruc, DSCodeg, defstrucdatag, DSPartVBCg, DSPartFBCg, DSPartPhiBCg, DSKerSumVolg, DSAcclg, DSFlForceg, DSDispPhig, DSEqPlasticg, DSPlasticStraing, DSPlasticFpg, DSHjcg,
 		DSDefGradg2D, DSDefGradg3D, DSDefPk, DSVelg, DSVelPreg, DSPos0g, DSPhiTdatag, DSDispCorxzg, DSDispCoryg,
 		Simulate2D, DSFracture, UserExpressionsg, float(TimeStep), Gravity);
 	cuerr = cudaGetLastError();
@@ -1600,6 +1607,8 @@ void JSphGpuSingle::DSPreTimeInt()
 		DSKerg, DSPartVBCg, DSKerDerLapg, DSPos0g, DSPartFBCg, DSPartPhiBCg, DSDispPhig, DSEqPlasticg, DSPlasticStraing, DSPlasticFpg, DSDefGradg2D,
 		DSPiolKirg2D, DSDefGradg3D, DSPiolKirg3D, DSPhiTdatag, DSAcclg, DSVelg, DSVelPreg,
 		DSDefPk, DSDispCorxzg, DSDispCoryg, DSblockMinMax, DeformStruc);
+	DSIntArraysg.DSHjcg=DSHjcg;
+	DSIntArraysg.HjcSymplectic=(TStep==STEP_Symplectic);
 
 	DSSaveInitDomainInfo(defstrucdatac);
 	cuerr = cudaGetLastError();
