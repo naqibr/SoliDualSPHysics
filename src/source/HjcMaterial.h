@@ -82,7 +82,7 @@ HJC_HD inline Result update(const Parameters& p, const double deps[6],
     s.stress[5]*s.stress[5]));
 
   s.volume_strain+=deps[0]+deps[1]+deps[2];
-  const double mu=exp(-s.volume_strain)-1.0;
+  const double mu=expm1(-s.volume_strain);
   const double k0=p.pc/p.muc;
   double pressure, dpdmu, dmup=0.0;
   // The previous density measure selects the EOS branch and unloading modulus.

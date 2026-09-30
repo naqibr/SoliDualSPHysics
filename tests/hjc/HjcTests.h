@@ -31,6 +31,10 @@ inline void runAnalytic() {
   close(r.pressure,p.pc/p.muc*std::expm1(3.e-6),1.e-4,"elastic hydrostatic pressure");
   close(s.plastic_volume,0.,0.,"elastic volume must be reversible");
   close(s.plastic_strain,0.,1.e-14,"hydrostatic plastic shear strain");
+  s=hjc::initialize(p);
+  const double tiny[6]={-1.e-18,-1.e-18,-1.e-18,0,0,0};
+  r=hjc::update(p,tiny,1.e-6,s);
+  close(r.pressure,3.e-18*p.pc/p.muc,1.e-20,"infinitesimal bulk response");
   for(int axis=3;axis<6;++axis) {
     s=hjc::initialize(p); double e[6]={}; e[axis]=1.e-6;
     r=hjc::update(p,e,1.e-6,s);
