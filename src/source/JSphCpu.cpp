@@ -102,7 +102,7 @@ void JSphCpu::InitVars() {
 	DSPairStart = NULL; DSPairN = NULL; DSPartVBC = NULL; DSPartFBC = NULL; DSKerSumVol = NULL;
 	DSPos0 = NULL; DSCode = NULL; DSDisp = NULL; DSVel = NULL; DSVelPre = NULL; DSAccl = NULL;
 	DSDefGrad = NULL; DSPiolKir = NULL; DSPhi = NULL; DSPhiDot = NULL; DSPhiDotPre = NULL;
-	DSPhiDDot = NULL; DSHis = NULL; DSCorrArray = NULL; DSJacob = NULL; DSEqPlastic = NULL; DSPlasticStrain = NULL; DSPlasticFp = NULL; DSParent = NULL;
+	DSPhiDDot = NULL; DSHis = NULL; DSCorrArray = NULL; DSJacob = NULL; DSEqPlastic = NULL; DSPlasticStrain = NULL; DSPlasticFp = NULL; DSHjc = NULL; DSParent = NULL;
 	DSiBodyRidp = NULL;
 	DSDivData = DivDataCpuNull();
 
@@ -160,6 +160,7 @@ void JSphCpu::FreeCpuMemoryFixed() {
 	delete[]DSEqPlastic; DSEqPlastic = NULL;
 	delete[]DSPlasticStrain; DSPlasticStrain = NULL;
 	delete[]DSPlasticFp; DSPlasticFp = NULL;
+	delete[]DSHjc; DSHjc = NULL;
 	delete[]DSParent; DSParent = NULL;
 	delete[]DSiBodyRidp; DSiBodyRidp = NULL;
 	if (DSPartPhiBC) {
@@ -221,6 +222,10 @@ void JSphCpu::DSAllocCpuMemoryFixed() {
 		DSJacob = new double[MapNdeformstruc]();			MemCpuFixed += (sizeof(double) * MapNdeformstruc);
 		DSPiolKir = new tmatrix3d[MapNdeformstruc];			MemCpuFixed += (sizeof(tmatrix3d) * MapNdeformstruc);
 		DSKerSumVol = new float[MapNdeformstruc]();		MemCpuFixed += (sizeof(float) * MapNdeformstruc);
+		if (DeformStruc->HasHjc()) {
+			DSHjc = new hjc::Particle[MapNdeformstruc]();
+			MemCpuFixed += sizeof(hjc::Particle)*MapNdeformstruc;
+		}
 		if (DSPlastic) {
 			DSEqPlastic = new double[MapNdeformstruc]();	MemCpuFixed += (sizeof(double) * MapNdeformstruc);
 			std::fill(DSEqPlastic, DSEqPlastic + MapNdeformstruc, 0.0);

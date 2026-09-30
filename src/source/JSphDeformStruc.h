@@ -98,6 +98,7 @@ private:
 	float LameBulk;								///<Bulk modulus
 	float cZero;								///<Initial speed of sound.
     float YieldStress;                                                       ///<Initial yield stress for J2 plasticity.
+    hjc::Parameters HjcParameters = {};
     float Hardening;                                                         ///<Isotropic hardening modulus for J2 plasticity.
 	float kernelh;
 	float kernelsize;
@@ -171,6 +172,15 @@ public:
 	inline unsigned GetMapfact()const { return MapFact; };
 	inline unsigned GetNBsfact()const { return NBsrange; };
 
+    const hjc::Parameters& GetHjcParameters()const { return HjcParameters; }
+    void SetHjcParameters(const hjc::Parameters& p) {
+        HjcParameters=p; Fracture=false;
+        LameMu=float(p.g); LameBulk=float(p.pc/p.muc);
+        LameLmbda=float(p.pc/p.muc-2*p.g/3);
+        YoungMod=float(9*(p.pc/p.muc)*p.g/(3*(p.pc/p.muc)+p.g));
+        PoissRatio=float((3*(p.pc/p.muc)-2*p.g)/(2*(3*(p.pc/p.muc)+p.g)));
+        cZero=float(sqrt((p.pc/p.muc+4*p.g/3)/Density));
+    }
 	inline float GetKFric()const { return KFric; };
 	inline float GetRestCoeff()const { return RestCoeff; };
 	inline unsigned GetNvBC()const { return NvBC; };
@@ -213,6 +223,11 @@ public:
 	~JSphDeformStruc();
 
 	void VisuConfig(std::string txhead, std::string txfoot);
+    bool HasHjc()const {
+        for(unsigned i=0;i<List.size();++i)
+            if(List[i]->GetConstModel()==CONSTITMODEL_HJC) return true;
+        return false;
+    }
 	unsigned GetCount()const { return(unsigned(List.size())); }
 	const JSphDeformStrucBody* GetBody(unsigned idx)const { return(idx < GetCount() ? List[idx] : NULL); }
 	

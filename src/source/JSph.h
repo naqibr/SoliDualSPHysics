@@ -555,6 +555,8 @@ protected:
 		const tfloat3* vel, const tfloat3* particleenergy,
 		const unsigned DSNMeasPlanes, const unsigned* DSMeasPlnCnt, const unsigned DSNPartMeasPlanes,
 		const unsigned* DSMeasPlnPart, const float* DSKerSumVolc, const tfloat3* DSFluidForce)const;
+	void AddHjcArrays(JDataArrays& arrays,unsigned np,const hjc::Particle* points,
+		const typecode* codes,const StDeformStrucIntData* bodies)const;
 	void EnsureDsDerivedArrays(JDataArrays& arrays, StDeformStrucIntData* deformstrucdata, unsigned dsnp)const;
 
 	void SavePartData(unsigned npok, unsigned nout, const JDataArrays& arrays, const JDataArrays& dsarrays, unsigned ndom, const tdouble3* vdom, const StInfoPartPlus* infoplus, 

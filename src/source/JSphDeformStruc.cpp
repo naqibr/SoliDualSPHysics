@@ -237,6 +237,7 @@ void JSphDeformStrucBody::GetConfig(std::vector<std::string>& lines)const {
 	std::string cmodelstr;
 	if (ConstitModel == CONSTITMODEL_SVK) cmodelstr = "St. Venant Kirchhoff";
 	else if (ConstitModel == CONSTITMODEL_NH) cmodelstr = "Neo-Hookean";
+	else if (ConstitModel == CONSTITMODEL_HJC) cmodelstr = "HJC concrete (R13-compatible)";
 	else cmodelstr = "J2 elasto-plastic";
 	lines.push_back(fun::PrintStr("    Constitutive model: %s", cmodelstr.c_str()));
 	if (ConstitModel == CONSTITMODEL_J2) {
@@ -482,7 +483,7 @@ void JSphDeformStruc::ReadXml(const JXml* sxml, TiXmlElement* lis, const bool si
 			double usrMu = sxml->ReadElementDoublePos(ele, "u_mu", "value", true, NULL);
 			double usrBulk = sxml->ReadElementDoublePos(ele, "u_bulk", "value", true, NULL);
 			float density = sxml->ReadElementFloatPos(ele, "density", "value");
-			bool askyoung = (usrlambda && usrMu || usrlambda && usrBulk || usrMu && usrBulk);
+			bool askyoung = (usrlambda && usrMu || usrlambda && usrBulk || usrMu && usrBulk) || sxml->ReadElementUnsigned(ele, "constitmodel", "value", true, 0)==4;
 			if (askyoung) {
 				Log->PrintWarning(fun::PrintStr("Elastic constants directly specified for mkbound=%u. Young's modulus and Poisson's ratio will be computed.", mkbound));
 			}
@@ -495,6 +496,7 @@ void JSphDeformStruc::ReadXml(const JXml* sxml, TiXmlElement* lis, const bool si
 				case 1: constitmodel = CONSTITMODEL_SVK;  break;
 				case 2: constitmodel = CONSTITMODEL_NH;  break;
 				case 3: constitmodel = CONSTITMODEL_J2;  break;
+				case 4: constitmodel = CONSTITMODEL_HJC; break;
 				default: constitmodel = CONSTITMODEL_SVK; 
 					Log->PrintWarning(fun::PrintStr("Constitutive model not specified for mkbound=%u, using default (St. Venant Kirchhoff).", mkbound));
 			}
@@ -629,6 +631,31 @@ void JSphDeformStruc::ReadXml(const JXml* sxml, TiXmlElement* lis, const bool si
 				usrlambda, usrMu, usrBulk, yieldstress, hardening, 
 				tmbcvel, nmbcvel, tmbcforce, nmbcforce, tmbcphi, nmbcphi, tmnotch, nmnotch, measureplanes, nmmeasureplane, nbsrangei);
 
+			if (constitmodel == CONSTITMODEL_HJC) {
+				hjc::Parameters hp;
+				hp.g = sxml->ReadElementDouble(ele, "hjc", "G");
+				hp.a = sxml->ReadElementDouble(ele, "hjc", "A");
+				hp.b = sxml->ReadElementDouble(ele, "hjc", "B");
+				hp.c = sxml->ReadElementDouble(ele, "hjc", "C");
+				hp.n = sxml->ReadElementDouble(ele, "hjc", "N");
+				hp.fc = sxml->ReadElementDouble(ele, "hjc", "FC");
+				hp.tension = sxml->ReadElementDouble(ele, "hjc", "T");
+				hp.rate0 = sxml->ReadElementDouble(ele, "hjc", "EPS0");
+				hp.efmin = sxml->ReadElementDouble(ele, "hjc", "EFMIN");
+				hp.sfmax = sxml->ReadElementDouble(ele, "hjc", "SFMAX");
+				hp.pc = sxml->ReadElementDouble(ele, "hjc", "PC");
+				hp.muc = sxml->ReadElementDouble(ele, "hjc", "UC");
+				hp.pl = sxml->ReadElementDouble(ele, "hjc", "PL");
+				hp.mul = sxml->ReadElementDouble(ele, "hjc", "UL");
+				hp.d1 = sxml->ReadElementDouble(ele, "hjc", "D1");
+				hp.d2 = sxml->ReadElementDouble(ele, "hjc", "D2");
+				hp.k1 = sxml->ReadElementDouble(ele, "hjc", "K1");
+				hp.k2 = sxml->ReadElementDouble(ele, "hjc", "K2");
+				hp.k3 = sxml->ReadElementDouble(ele, "hjc", "K3");
+				if (!hjc::valid(hp)) Run_Exceptioon("Invalid HJC parameters.");
+				if (fracturei) Run_Exceptioon("HJC uses its own damage; phase-field fracture must be disabled.");
+				body->SetHjcParameters(hp);
+			}
 			List.push_back(body);
 			
 			if (countbcv) delete[] tmbcvel;

@@ -230,6 +230,8 @@ struct StGPUExpression {
 class JSphDeformStruc;
 ///Structure with the arrays of the deformable structure for time integration.
 typedef struct StDeformStrucIntArraysg {
+    hjc::Particle* DSHjcg;
+    bool HjcSymplectic;
     const JSphDeformStruc* DeformStruc;		///Pointer to deformable structure class
 	const typecode* DSCodeg;				///<Indicator of group of particles & other special markers. [MapNdeformstruc].
 	const unsigned* DSPairJg;				///<List of j (neighbour) index to each initial neighbourlist of all the mapped domain [DSNumPairs].
@@ -270,7 +272,7 @@ typedef struct StDeformStrucIntArraysg {
 		DSPos0g(_DSPos0g), DSPartFBCg(_DSPartFBCg), DSPartPhiBCg(_DSPartPhiBCg), DSDispPhig(_DSDispPhig), DSDefGradg2D(_DSDefGradg2D),
 		DSPiolKirg2D(_DSPiolKirg2D), DSDefGradg3D(_DSDefGradg3D), DSPiolKirg3D(_DSPiolKirg3D), DSPhiTdatag(_DSPhiTdatag),
 		DSAcclg(_DSAcclg), DSVelg(_DSVelg), DSVelPreg(_DSVelPreg), DSDefPk(_DSDefPk), DSblockMinMax(_DSblockMinMax),
-		DSDispCorxzg(_DSDispCorxzg), DSDispCoryg(_DSDispCoryg), DeformStruc(_DeformStruc), DSEqPlasticg(_DSEqPlasticg), DSPlasticStraing(_DSPlasticStraing), DSPlasticFpg(_DSPlasticFpg)
+		DSDispCorxzg(_DSDispCorxzg), DSDispCoryg(_DSDispCoryg), DeformStruc(_DeformStruc), DSEqPlasticg(_DSEqPlasticg), DSPlasticStraing(_DSPlasticStraing), DSPlasticFpg(_DSPlasticFpg), DSHjcg(nullptr), HjcSymplectic(false)
 	{
 	}
 
@@ -281,7 +283,7 @@ typedef struct StDeformStrucIntArraysg {
         DSPiolKirg2D(nullptr), DSDefGradg3D(nullptr), DSPiolKirg3D(nullptr), DSPhiTdatag(nullptr),
         DSAcclg(nullptr), DSVelg(nullptr), DSVelPreg(nullptr), DSDefPk(nullptr), 
         DSDispCorxzg(nullptr), DSDispCoryg(nullptr), DSblockMinMax(nullptr), 
-		DeformStruc(nullptr), DSEqPlasticg(nullptr), DSPlasticStraing(nullptr), DSPlasticFpg(nullptr)
+		DeformStruc(nullptr), DSEqPlasticg(nullptr), DSPlasticStraing(nullptr), DSPlasticFpg(nullptr), DSHjcg(nullptr), HjcSymplectic(false)
     {
     }
 

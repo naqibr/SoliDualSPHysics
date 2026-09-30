@@ -51,7 +51,7 @@ namespace cudefstr {
 
 	void DSInitFieldVars(const TpStep TStep, const int MapNdeformstruc, const typecode* DSCodeg,
 		const StDeformStrucData* DeformStrucDatag, const tbcstruc* DSPartVBCg, tbcstruc* DSPartFBCg, tphibc* DSPartPhiBCg, const float* DSKerSumVolg,
-		float4* DSAcclg, float3* DSFlForceg, float4* DSDispPhig, float* DSEqPlasticg, tmatrix3f* DSPlasticStraing, matrix3f* DSPlasticFpg, float4* DSDefGradg2D, float4* DSDefGradg3D,
+		float4* DSAcclg, float3* DSFlForceg, float4* DSDispPhig, float* DSEqPlasticg, tmatrix3f* DSPlasticStraing, matrix3f* DSPlasticFpg, hjc::Particle* DSHjcg, float4* DSDefGradg2D, float4* DSDefGradg3D,
 		float2* DSDefPk, float4* DSVelg, float4* DSVelPreg, const float4* DSPos0g, float4* DSPhiTdatag,
 		float2* DSDispCorxzg, float* DSDispCoryg, bool Simulate2D, bool DSFrac,
 		JUserExpressionListGPU* UserExpressionsg, const float TimeStep, const tfloat3 Gravity);

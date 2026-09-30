@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<case>
+  <casedef>
+    <constantsdef>
+      <gravity x="0" y="0" z="0" />
+      <rhop0 value="997" />
+      <hswl value="0" auto="true" />
+      <gamma value="7" />
+      <speedsystem value="10" auto="false" />
+      <coefsound value="10" />
+      <coefh value="1.0" />
+      <cflnumber value="0.2" />
+    </constantsdef>
+    <mkconfig boundcount="240" fluidcount="9" />
+    <geometry>
+      <definition dp="0.0025" units_comment="m">
+        <pointmin x="-0.02" y="-0.02" z="-0.02" />
+        <pointmax x="0.04" y="0.04" z="0.04" />
+      </definition>
+      <commands><mainlist>
+        <setdrawmode mode="full" />
+        <setmkbound mk="1" />
+        <drawbox>
+          <boxfill>solid</boxfill>
+          <point x="0" y="0" z="0" />
+          <size x="0.02" y="0.02" z="0.02" />
+        </drawbox>
+      </mainlist></commands>
+    </geometry>
+    <motion><objreal ref="1"><begin mov="1" start="0" /><mvnull id="1" /></objreal></motion>
+  </casedef>
+  <execution>
+    <special>
+      <!-- A homogeneous, fully prescribed patch test: F=I+h(t)*L,
+           h=sin(pi*t/1e-4)^2, L=diag(-.015)+.04 ex*ey+.02 ey*ez.
+           This isolates the material and kinematic update from free-surface waves. -->
+      <mathexpressions>
+        <userexpression id="1">
+          <locals value="w=31415.92653589793" />
+          <expression value="w*sin(2*w*t)*(-0.015*x0+0.04*y0)" />
+        </userexpression>
+        <userexpression id="2">
+          <locals value="w=31415.92653589793" />
+          <expression value="w*sin(2*w*t)*(-0.015*y0+0.02*z0)" />
+        </userexpression>
+        <userexpression id="3">
+          <locals value="w=31415.92653589793" />
+          <expression value="-0.015*w*sin(2*w*t)*z0" />
+        </userexpression>
+      </mathexpressions>
+      <deformstrucs>
+        <timestep value="1.e-7" />
+        <deformstrucbody mkbound="1">
+          <bcvel xe="1" ye="2" ze="3" />
+          <density value="2700" />
+          <constitmodel value="4" />
+          <mapfac value="1" />
+          <artvisc factor1="0.05" factor2="0" />
+          <hjc G="2.417e10" A="0.29" B="2.06" C="0.0013" N="0.866"
+               FC="1.19e8" T="8.2e6" EPS0="1" EFMIN="0.01" SFMAX="5"
+               PC="4e7" UC="0.00124" PL="1.2e9" UL="0.011"
+               D1="0.04" D2="1" K1="1.287e10" K2="1.631e10" K3="6.495e10" />
+        </deformstrucbody>
+      </deformstrucs>
+    </special>
+    <parameters>
+      <parameter key="StepAlgorithm" value="2" />
+      <parameter key="Kernel" value="2" />
+      <parameter key="Visco" value="0.000001" />
+      <parameter key="CoefDtMin" value="0.001" />
+      <parameter key="DtFixed" value="0.000001" />
+      <parameter key="TimeMax" value="0.0001" />
+      <parameter key="TimeOut" value="0.000002" />
+      <simulationdomain>
+        <posmin x="-0.02" y="-0.02" z="-0.02" />
+        <posmax x="0.04" y="0.04" z="0.04" />
+      </simulationdomain>
+    </parameters>
+  </execution>
+</case>

@@ -1,4 +1,5 @@
 
+#include "HjcKinematics.h"
 #include "JSphGpu_DefStruc_ker.h"
 #include <cuda_runtime.h>
 #include "device_launch_parameters.h"
@@ -883,7 +884,7 @@ namespace cudefstr {
 	__global__ void DSInitFieldVarsKernel(const TpStep TStep, const int MapNdeformstruc, const typecode* __restrict__ DSCodeg,
 		const StDeformStrucData* __restrict__ DeformStrucDatag, const tbcstruc* __restrict__ DSPartVBCg,
 		tbcstruc* __restrict__ DSPartFBCg, const float* __restrict__ DSKerSumVolg, float4* __restrict__ DSAcclg, float3* __restrict__ DSFlForceg, float4* __restrict__ DSDispPhig, float* __restrict__ DSEqPlasticg,
-		tmatrix3f* __restrict__ DSPlasticStraing, matrix3f* __restrict__  DSPlasticFpg, float4* __restrict__ DSDefGradg2D, float4* __restrict__ DSDefGradg3D,
+		tmatrix3f* __restrict__ DSPlasticStraing, matrix3f* __restrict__  DSPlasticFpg, hjc::Particle* DSHjcg, float4* __restrict__ DSDefGradg2D, float4* __restrict__ DSDefGradg3D,
 		float2* __restrict__ DSDefPk, float4* __restrict__ DSVelg, float4* __restrict__ DSVelPreg,
 		const float4* __restrict__ DSPos0g, float4* __restrict__ DSPhiTdatag,
 		float2* __restrict__ DSDispCorxzg, float* __restrict__ DSDispCoryg,
@@ -896,6 +897,7 @@ namespace cudefstr {
 			const StDeformStrucData& body = DeformStrucDatag[bodyid];
 
 			DSDispPhig[p1] = make_float4(0.0f, 0.0f, 0.0f, 1.0f);
+			if (DSHjcg && body.constitmodel==CONSTITMODEL_HJC) DSHjcg[p1]=hjc::initializeParticle(body.hjc);
 			if (DSEqPlasticg) DSEqPlasticg[p1] = 0.0f;
 			if (DSPlasticStraing) DSPlasticStraing[p1] = { 1.0f,0.0f,0.0f,0.0f,1.0f,0.0f,0.0f,0.0f,1.0f };  // Initialize plastic metric to identity
 			if (DSPlasticFpg) DSPlasticFpg[p1] = { 1.0f,0.0f,0.0f,0.0f,1.0f,0.0f,0.0f,0.0f,1.0f };  // Initialize plastic metric to identity
@@ -1001,7 +1003,7 @@ namespace cudefstr {
 
 	void DSInitFieldVars(const TpStep TStep, const int MapNdeformstruc, const typecode* DSCodeg,
 		const StDeformStrucData* DeformStrucDatag, const tbcstruc* DSPartVBCg, tbcstruc* DSPartFBCg, tphibc* DSPartPhiBCg, const float* DSKerSumVolg,
-		float4* DSAcclg, float3* DSFlForceg, float4* DSDispPhig, float* DSEqPlasticg, tmatrix3f* DSPlasticStraing, matrix3f*  DSPlasticFpg, float4* DSDefGradg2D, float4* DSDefGradg3D,
+		float4* DSAcclg, float3* DSFlForceg, float4* DSDispPhig, float* DSEqPlasticg, tmatrix3f* DSPlasticStraing, matrix3f*  DSPlasticFpg, hjc::Particle* DSHjcg, float4* DSDefGradg2D, float4* DSDefGradg3D,
 		float2* DSDefPk, float4* DSVelg, float4* DSVelPreg, const float4* DSPos0g, float4* DSPhiTdatag,
 		float2* DSDispCorxzg, float* DSDispCoryg, bool Simulate2D, bool DSFrac,
 		JUserExpressionListGPU* UserExpressionsg, const float TimeStep, const tfloat3 Gravity)
@@ -1009,7 +1011,7 @@ namespace cudefstr {
 
 		dim3 sgridb = GetSimpleGridSize(MapNdeformstruc, SPHBSIZE);
 		DSInitFieldVarsKernel << <sgridb, SPHBSIZE >> > (TStep, MapNdeformstruc, DSCodeg, DeformStrucDatag,
-			DSPartVBCg, DSPartFBCg, DSKerSumVolg, DSAcclg, DSFlForceg, DSDispPhig, DSEqPlasticg, DSPlasticStraing, DSPlasticFpg, DSDefGradg2D, DSDefGradg3D, DSDefPk, DSVelg, DSVelPreg, DSPos0g,
+			DSPartVBCg, DSPartFBCg, DSKerSumVolg, DSAcclg, DSFlForceg, DSDispPhig, DSEqPlasticg, DSPlasticStraing, DSPlasticFpg, DSHjcg, DSDefGradg2D, DSDefGradg3D, DSDefPk, DSVelg, DSVelPreg, DSPos0g,
 			DSPhiTdatag, DSDispCorxzg, DSDispCoryg, Simulate2D, DSFrac, TimeStep, UserExpressionsg, Gravity);
 		cudaDeviceSynchronize();
 	}
@@ -1128,7 +1130,7 @@ namespace cudefstr {
 	template<bool simulate2d>
 	//__launch_bounds__(SPHBSIZE, 3)
 	__global__ void DSComputeDeformGradPKKernel(const int np, unsigned bodycnt,
-		const StDeformStrucIntData* __restrict__ DeformStrucDatag, const StDeformStrucIntArraysg arrays)
+		const StDeformStrucIntData* __restrict__ DeformStrucDatag, const StDeformStrucIntArraysg arrays, const double dsdt)
 	{
 		extern __shared__ StDeformStrucIntData deformbody[];
 		for (int i = threadIdx.x; i < bodycnt; i += blockDim.x) deformbody[i] = DeformStrucDatag[i];
@@ -1452,7 +1454,22 @@ namespace cudefstr {
 			Cpt3f.a31 = Cp_new.a31; Cpt3f.a32 = Cp_new.a32; Cpt3f.a33 = Cp_new.a33;
 			arrays.DSPlasticStraing[p1] = Cpt3f;
 		}
-		const matrix3f PK1 = cumath::MulMatrix3x3(defgradp1, PK2);
+		matrix3f PK1;
+        if (body.constitmodel==CONSTITMODEL_HJC) {
+            const double f[]={defgradp1.a11,defgradp1.a12,defgradp1.a13,
+                defgradp1.a21,defgradp1.a22,defgradp1.a23,
+                defgradp1.a31,defgradp1.a32,defgradp1.a33};
+            double pk[9];
+            const double previous=arrays.DSHjcg[p1].previous_dt;
+            const double interval=arrays.HjcSymplectic ? 0.5*(previous+dsdt) : (previous>0?previous:dsdt);
+            if (!hjc::advance(body.hjc,f,interval,arrays.DSHjcg[p1],pk)) {
+                asm("trap;"); // Report invalid deformation through the CUDA error path.
+                return;
+            }
+            arrays.DSHjcg[p1].previous_dt=dsdt;
+            PK1=make_matrix3f(float(pk[0]),float(pk[1]),float(pk[2]),
+                float(pk[3]),float(pk[4]),float(pk[5]),float(pk[6]),float(pk[7]),float(pk[8]));
+        } else PK1=cumath::MulMatrix3x3(defgradp1,PK2);
 
 		arrays.DSDefGradg2D[p1] = make_float4(defgradp1.a11, defgradp1.a13, defgradp1.a31, defgradp1.a33);
 		arrays.DSPiolKirg2D[p1] = make_float4(PK1.a11, PK1.a13, PK1.a31, PK1.a33);
@@ -1565,6 +1582,8 @@ namespace cudefstr {
 				defgradInv = cumath::SafeInvDefgrad(defgradF, epbar > SIGN_PLASTIC_FLOW, jacob);
 			}
 
+			const float sound=body.constitmodel==CONSTITMODEL_HJC ?
+				float(sqrt(arrays.DSHjcg[p1].acoustic_modulus*jacob/body.rho0)) : body.czero;
 #pragma unroll 8
 			for (unsigned pair = 0; pair < pairnsp1.x; pair++)
 			{
@@ -1598,7 +1617,7 @@ namespace cudefstr {
 				const float vijx = vel_dif.x * currdiff.x + vel_dif.y * currdiff.y + vel_dif.z * currdiff.z;
 				if (vijx < 0.0f) {
 					const float muij = vijx * body.kernelh / (dist2 + 0.01f * body.kernelh * body.kernelh);
-					const float q = body.avfactor1 * body.czero * muij - body.avfactor2 * muij * muij;
+					const float q = body.avfactor1 * sound * muij - body.avfactor2 * muij * muij;
 					viscacc.x += kerderlap.x * q;
 					viscacc.y += kerderlap.y * q;
 					viscacc.z += kerderlap.z * q;
@@ -1626,7 +1645,7 @@ namespace cudefstr {
 
 			if (simulate2d) acclp1.y = 0.0f;
 
-			const float dt_av = body.kernelh / (body.czero + sqrtf(velp1.x * velp1.x + velp1.y * velp1.y + velp1.z * velp1.z));
+			const float dt_av = body.kernelh / (sound + sqrtf(velp1.x * velp1.x + velp1.y * velp1.y + velp1.z * velp1.z));
 			const float famag = acclp1.x * acclp1.x + acclp1.y * acclp1.y + acclp1.z * acclp1.z;
 			float dt_accl = (famag > ALMOSTZERO) ? sqrtf(body.kernelh / sqrtf(famag)) : FLT_MAX;
 
@@ -1683,12 +1702,12 @@ namespace cudefstr {
 		dim3 sgridb = GetSimpleGridSize(np, SPHBSIZE);
 		const size_t shmem = size_t(bodycnt) * sizeof(StDeformStrucIntData);
 		if (simulate2d) {
-			DSComputeDeformGradPKKernel<true> << <sgridb, SPHBSIZE, shmem >> > (np, bodycnt, DeformStrucDatag, DSIntArraysg);
+			DSComputeDeformGradPKKernel<true> << <sgridb, SPHBSIZE, shmem >> > (np, bodycnt, DeformStrucDatag, DSIntArraysg, dsdt);
 			cudaDeviceSynchronize();
 			DSComputeAcclKernel<true> << <sgridb, SPHBSIZE, shmem >> > (np, bodycnt, DeformStrucDatag, DSIntArraysg, Gravity, UserExpressionsg, DSFlForceg, DSKerSumg, dstime, dsdt);
 		}
 		else {
-			DSComputeDeformGradPKKernel<false> << <sgridb, SPHBSIZE, shmem >> > (np, bodycnt, DeformStrucDatag, DSIntArraysg);
+			DSComputeDeformGradPKKernel<false> << <sgridb, SPHBSIZE, shmem >> > (np, bodycnt, DeformStrucDatag, DSIntArraysg, dsdt);
 			cudaDeviceSynchronize();
 			DSComputeAcclKernel<false> << <sgridb, SPHBSIZE, shmem >> > (np, bodycnt, DeformStrucDatag, DSIntArraysg, Gravity, UserExpressionsg, DSFlForceg, DSKerSumg, dstime, dsdt);
 		}
@@ -2237,6 +2256,13 @@ namespace cudefstr {
 		const matrix3f plastic_devp1 = (arrays.DSPlasticFpg ? arrays.DSPlasticFpg[p1] : Matrix3f(0.0f));
 
 		tfloat3 energies = DScalcenergiesp1<simulate2d>(defgrad, vel, dispphi.w, pairnsp1, arrays, eqplastic, plastic_devp1, body);
+        if (body.constitmodel==CONSTITMODEL_HJC) {
+            energies.x=float(arrays.DSHjcg[p1].internal_work);
+            energies.z=0.0f;
+            const hjc::State& hs=arrays.DSHjcg[p1].state;
+            cauchystress[p1]={float(hs.stress[0]),float(hs.stress[3]),float(hs.stress[5]),
+                float(hs.stress[1]),float(hs.stress[4]),float(hs.stress[2])};
+        }
 		energies.x *= body.vol0;
 		energies.y *= body.vol0;
 		energies.z *= body.vol0;

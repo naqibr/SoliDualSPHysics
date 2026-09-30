@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.10)
+project(HjcTests LANGUAGES CXX)
+enable_testing()
+add_executable(test_hjc test_hjc.cpp)
+target_include_directories(test_hjc PRIVATE ../../src/source)
+target_compile_features(test_hjc PRIVATE cxx_std_11)
+add_test(NAME hjc_material_and_kinematics COMMAND test_hjc)
